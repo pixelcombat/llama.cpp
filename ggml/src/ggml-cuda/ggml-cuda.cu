@@ -2,6 +2,11 @@
 #include "ggml-impl.h"
 #include "ggml-backend-impl.h"
 
+#include <algorithm>
+#include <cstdio>
+#include <unordered_map>
+#include <vector>
+
 #include "ggml-cuda/allreduce.cuh"
 #include "ggml-cuda/common.cuh"
 #include "ggml-cuda/acc.cuh"
@@ -4750,6 +4755,75 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph 
     return 0;
 }
 
+struct ggml_cuda_node_prof_row {
+    double   total_ms = 0;
+    int      count    = 0;
+    size_t   nbytes   = 0;
+    std::string op;
+    std::string name;
+};
+
+static int ggml_cuda_node_prof_enabled() {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char * env = getenv("GGML_CUDA_NODE_US");
+        enabled          = (env && atoi(env) > 0) ? 1 : 0;
+    }
+    return enabled;
+}
+
+static std::unordered_map<std::string, ggml_cuda_node_prof_row> & ggml_cuda_node_prof_map() {
+    static std::unordered_map<std::string, ggml_cuda_node_prof_row> map;
+    return map;
+}
+
+static void ggml_cuda_node_prof_record(const ggml_tensor * node, float ms) {
+    const char * nm  = node->name[0] ? node->name : "?";
+    const char * op  = ggml_op_name(node->op);
+    std::string  key = std::string(op) + "\t" + nm;
+    auto &       row = ggml_cuda_node_prof_map()[key];
+    if (row.count == 0) {
+        row.op     = op;
+        row.name   = nm;
+        row.nbytes = ggml_nbytes(node);
+    }
+    row.total_ms += (double) ms;
+    row.count++;
+}
+
+static void ggml_cuda_node_prof_dump() {
+    if (!ggml_cuda_node_prof_enabled()) {
+        return;
+    }
+    auto & map = ggml_cuda_node_prof_map();
+    if (map.empty()) {
+        return;
+    }
+    std::vector<const ggml_cuda_node_prof_row *> rows;
+    rows.reserve(map.size());
+    for (const auto & kv : map) {
+        rows.push_back(&kv.second);
+    }
+    std::sort(rows.begin(), rows.end(), [](const auto * a, const auto * b) {
+        return a->total_ms > b->total_ms;
+    });
+    GGML_LOG_INFO("ggml_cuda_node_prof_top10 (ms cumulative, n=ops):\n");
+    const int n = std::min<int>(10, (int) rows.size());
+    for (int i = 0; i < n; ++i) {
+        const auto * r = rows[i];
+        GGML_LOG_INFO(
+            "  #%d %s name=%s nbytes=%.2f MiB count=%d ms=%.3f avg_us=%.1f\n",
+            i + 1,
+            r->op.c_str(),
+            r->name.c_str(),
+            (double) r->nbytes / (1024.0 * 1024.0),
+            r->count,
+            r->total_ms,
+            (r->count > 0) ? (1000.0 * r->total_ms / (double) r->count) : 0.0);
+    }
+    map.clear();
+}
+
 static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required, const void * graph_key) {
     bool graph_evaluated_or_captured = false;
 
@@ -4935,7 +5009,24 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                 GGML_UNUSED(integrated);
 #endif  // NDEBUG
 
-                bool ok = ggml_cuda_compute_forward(*cuda_ctx, node);
+                bool ok = false;
+                if (ggml_cuda_node_prof_enabled()) {
+                    cudaEvent_t ev0;
+                    cudaEvent_t ev1;
+                    CUDA_CHECK(cudaEventCreate(&ev0));
+                    CUDA_CHECK(cudaEventCreate(&ev1));
+                    CUDA_CHECK(cudaEventRecord(ev0, cuda_ctx->stream()));
+                    ok = ggml_cuda_compute_forward(*cuda_ctx, node);
+                    CUDA_CHECK(cudaEventRecord(ev1, cuda_ctx->stream()));
+                    CUDA_CHECK(cudaEventSynchronize(ev1));
+                    float ms = 0.0f;
+                    CUDA_CHECK(cudaEventElapsedTime(&ms, ev0, ev1));
+                    ggml_cuda_node_prof_record(node, ms);
+                    CUDA_CHECK(cudaEventDestroy(ev0));
+                    CUDA_CHECK(cudaEventDestroy(ev1));
+                } else {
+                    ok = ggml_cuda_compute_forward(*cuda_ctx, node);
+                }
                 if (!ok) {
                     GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
                 }
@@ -4944,6 +5035,9 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
                 if (!is_concurrent_event_active) {
                     try_launch_concurrent_event(node);
                }
+            }
+            if (ggml_cuda_node_prof_enabled()) {
+                ggml_cuda_node_prof_dump();
             }
         }
 
@@ -5006,38 +5100,40 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend, 
     const void * graph_key = nullptr;
 
 #ifdef USE_CUDA_GRAPH
-    graph_key = ggml_cuda_graph_get_key(cgraph);
+    if (!ggml_cuda_node_prof_enabled()) {
+        graph_key = ggml_cuda_graph_get_key(cgraph);
 
-    ggml_cuda_graph_set_enabled(cuda_ctx, graph_key);
+        ggml_cuda_graph_set_enabled(cuda_ctx, graph_key);
 
-    ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
-    if (graph->is_enabled()) {
-        const bool graph_compatible = ggml_cuda_graph_check_compability(cgraph);
-        if (graph_compatible) {
-            const bool properties_changed = ggml_cuda_graph_update_required(cuda_ctx, cgraph);
+        ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+        if (graph->is_enabled()) {
+            const bool graph_compatible = ggml_cuda_graph_check_compability(cgraph);
+            if (graph_compatible) {
+                const bool properties_changed = ggml_cuda_graph_update_required(cuda_ctx, cgraph);
 
-            if (!graph->warmup_complete) {
-                // Warmup: need at least 2 calls with no property change on the 2nd call
-                if (!properties_changed) {
-                    graph->warmup_complete = true;
-                    if (ggml_cuda_graph_debug_enabled()) {
-                        GGML_LOG_DEBUG("%s: CUDA graph warmup complete\n", __func__);
+                if (!graph->warmup_complete) {
+                    // Warmup: need at least 2 calls with no property change on the 2nd call
+                    if (!properties_changed) {
+                        graph->warmup_complete = true;
+                        if (ggml_cuda_graph_debug_enabled()) {
+                            GGML_LOG_DEBUG("%s: CUDA graph warmup complete\n", __func__);
+                        }
+                        use_cuda_graph             = true;
+                        cuda_graph_update_required = true;
                     }
-                    use_cuda_graph = true;
-                    cuda_graph_update_required = true;
-                }
-                // else: properties changed or first call - execute directly (use_cuda_graph stays false)
-            } else {
-                // Post-warmup: normal CUDA graph operation
-                if (properties_changed) {
-                    // Properties changed - reset warmup, execute directly until stable again
-                    graph->warmup_complete = false;
-                    if (ggml_cuda_graph_debug_enabled()) {
-                        GGML_LOG_DEBUG("%s: CUDA graph warmup reset\n", __func__);
-                    }
+                    // else: properties changed or first call - execute directly (use_cuda_graph stays false)
                 } else {
-                    use_cuda_graph = true;
-                    cuda_graph_update_required = graph->instances.empty();
+                    // Post-warmup: normal CUDA graph operation
+                    if (properties_changed) {
+                        // Properties changed - reset warmup, execute directly until stable again
+                        graph->warmup_complete = false;
+                        if (ggml_cuda_graph_debug_enabled()) {
+                            GGML_LOG_DEBUG("%s: CUDA graph warmup reset\n", __func__);
+                        }
+                    } else {
+                        use_cuda_graph             = true;
+                        cuda_graph_update_required = graph->instances.empty();
+                    }
                 }
             }
         }

@@ -286,7 +286,9 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         mctx_recr = static_cast<const llama_memory_recurrent_context *>(mctx);
     }
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
-    if (syn_step) {
+    const bool rs_direct = syn_step && std::getenv("BDH_RS_DIRECT") &&
+                           std::strcmp(std::getenv("BDH_RS_DIRECT"), "1") == 0;
+    if (syn_step && !rs_direct) {
         inp_rs = build_rs_inp();
     }
     const int32_t state_size = (int32_t) (nh * N * D);
@@ -314,10 +316,13 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     bdh_rope_phases(ctx0, freqs, inp_pos, N, n_tokens, &ph_cos, &ph_sin);
     bdh_debug_select(ph_cos, "ph_cos");
 
+    ggml_tensor * w_enc   = bdh_encoder_weights_2d(ctx0, m.bdh_encoder, nh, N, D);
+    ggml_tensor * w_enc_v = ggml_cont(ctx0, ggml_permute(ctx0, m.bdh_encoder_v, 1, 0, 2, 3));
+
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * x = ggml_cont(ctx0, cur);
 
-        ggml_tensor * xsp                         = bdh_encoder_fused(ctx0, m.bdh_encoder, x, nh, N, D);
+        ggml_tensor * xsp                         = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc, x));
         ggml_tensor * x_sparse                    = bdh_sparse_3d_nt(ctx0, xsp, N, nh, n_tokens);
         cb(x_sparse, "model.layers.x_sparse", il);
         bdh_debug_select_il(x_sparse, "x_sparse", il);
@@ -326,7 +331,12 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         }
 
         ggml_tensor * grid_s = nullptr;
-        if (syn_step && inp_rs) {
+        if (syn_step && rs_direct) {
+            const auto   kv_head = mctx_recr->get_head();
+            ggml_tensor * s_slot = mctx_recr->get_s_l(il);
+            grid_s               = ggml_view_2d(
+                ctx0, s_slot, state_size, 1, s_slot->nb[1], (size_t) kv_head * s_slot->nb[1]);
+        } else if (syn_step && inp_rs) {
             grid_s = build_rs(inp_rs, mctx_recr->get_s_l(il), state_size, (int32_t) n_seqs);
         }
 
@@ -343,8 +353,13 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 ggml_tensor * grid_h = ggml_view_2d(
                     ctx0, grid_s, N, D, N * (int64_t) sizeof(float), (size_t) h * head_grid_bytes);
                 ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
-                y_h                  = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
-                grid_out_heads.push_back(bdh_grid_head_write_nd(ctx0, grid_h, qr, x));
+                y_h = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
+                if (rs_direct) {
+                    ggml_build_forward_expand(
+                        gf, ggml_add_inplace(ctx0, grid_h, bdh_grid_outer_delta(ctx0, qr, x)));
+                } else {
+                    grid_out_heads.push_back(bdh_grid_head_write_nd(ctx0, grid_h, qr, x));
+                }
             } else {
                 y_h = bdh_attn_head(ctx0, ph_cos, ph_sin, qk, x, n_tokens, (int) h);
             }
@@ -358,7 +373,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
             attn_heads.push_back(y_ln);
         }
 
-        if (syn_step && inp_rs && grid_s && grid_out_heads.size() == (size_t) nh) {
+        if (syn_step && !rs_direct && inp_rs && grid_s && grid_out_heads.size() == (size_t) nh) {
             const auto kv_head = mctx_recr->get_head();
             ggml_tensor * grid_out = stack_heads_dim2(ctx0, grid_out_heads, N, D);
             grid_out               = ggml_cont(ctx0, ggml_reshape_2d(ctx0, grid_out, state_size, n_seqs));
@@ -377,7 +392,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         cb(y_kv, "model.layers.y_kv", il);
         bdh_debug_select_il(y_kv, "y_kv", il);
 
-        ggml_tensor * ysp_nt  = bdh_encoder_v_fused(ctx0, m.bdh_encoder_v, y_kv);
+        ggml_tensor * ysp_nt  = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc_v, y_kv));
         ggml_tensor * ysp_nht = ggml_permute(ctx0, ysp_nt, 0, 2, 1, 3);
         ggml_tensor * ysp     = ggml_reshape_2d(ctx0, ggml_cont(ctx0, ysp_nht), nh * N, n_tokens);
         ggml_tensor * y_sparse  = bdh_sparse_3d_nt(ctx0, ysp, N, nh, n_tokens);
