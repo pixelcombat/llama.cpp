@@ -376,7 +376,9 @@ bool server_http_context::init_listener(const common_params & params) {
             const std::string & pfx = params.api_prefix;
             const std::string   pub = params.public_path;
             const auto is_sw = [&]() {
-                return req.path == "/sw.js" || req.path == pfx + "/sw.js";
+                // Kill-switch pod każdą ścieżką: stary Workbox mógł mieć scope inny niż /.
+                const std::string & p = req.path;
+                return p.size() >= 6 && p.compare(p.size() - 6, 6, "/sw.js") == 0;
             };
             if (is_sw()) {
                 res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
