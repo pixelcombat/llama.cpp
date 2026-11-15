@@ -287,7 +287,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     }
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
     const bool rs_fast  = syn_step && n_seqs == 1 && mctx_recr->get_n_rs() == (uint32_t) n_seqs &&
-                          std::getenv("BDH_RS_DIRECT") && std::strcmp(std::getenv("BDH_RS_DIRECT"), "1") == 0;
+                          (!std::getenv("BDH_RS_DIRECT") || std::strcmp(std::getenv("BDH_RS_DIRECT"), "0") != 0);
     if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
@@ -325,6 +325,8 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     ggml_tensor * w_enc   = bdh_encoder_weights_2d(ctx0, m.bdh_encoder, nh, N, D);
     ggml_tensor * w_enc_v = ggml_cont(ctx0, ggml_permute(ctx0, m.bdh_encoder_v, 1, 0, 2, 3));
 
+    std::vector<std::pair<ggml_tensor *, ggml_tensor *>> grid_pending_cpy;
+
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * x = ggml_cont(ctx0, cur);
 
@@ -359,10 +361,11 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 ggml_tensor * grid_h = ggml_view_2d(
                     ctx0, grid_s, N, D, N * (int64_t) sizeof(float), (size_t) h * head_grid_bytes);
                 ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
-                y_h = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
+                y_h                  = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
                 ggml_tensor * grid_w = bdh_grid_head_write_nd(ctx0, grid_h, qr, x);
+                grid_w               = ggml_add(ctx0, grid_w, ggml_scale(ctx0, y_h, 0.0f));
                 if (rs_fast) {
-                    ggml_build_forward_expand(gf, ggml_cpy(ctx0, grid_w, grid_h));
+                    grid_pending_cpy.emplace_back(grid_w, grid_h);
                 } else {
                     grid_out_heads.push_back(grid_w);
                 }
@@ -414,6 +417,14 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         y_mlp = build_norm(y_mlp, nullptr, nullptr, LLM_NORM, il);
         cur   = build_norm(ggml_add(ctx0, x, y_mlp), nullptr, nullptr, LLM_NORM, il);
         bdh_debug_select_il(cur, "l_out", il);
+
+        if (rs_fast && !grid_pending_cpy.empty()) {
+            for (const auto & wh : grid_pending_cpy) {
+                ggml_tensor * w_dep = ggml_add(ctx0, wh.first, ggml_scale(ctx0, cur, 0.0f));
+                ggml_build_forward_expand(gf, ggml_cpy(ctx0, w_dep, wh.second));
+            }
+            grid_pending_cpy.clear();
+        }
 
         if (il == n_layer - 1 && inp_out_ids && !bdh_debug_tag()) {
             cur = ggml_get_rows(ctx0, cur, inp_out_ids);
