@@ -21,7 +21,6 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil((async () => {
     await self.registration.unregister();
     for (const key of await caches.keys()) await caches.delete(key);
-    for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
 })()));
 )";
 } // namespace
@@ -554,7 +553,6 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil((async () => {
     await self.registration.unregister();
     for (const key of await caches.keys()) await caches.delete(key);
-    for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
 })()));
 )";
             res.set_header("Cache-Control", "no-cache");

@@ -22,7 +22,9 @@ export function usePwa() {
 		needRefresh: pwaNeedRefresh,
 		updateServiceWorker
 	} = useRegisterSW({
-		immediate: serviceWorkerSupported(),
+		// Nie rejestruj Workboxa. Stary SW na telefonie zostawiał biały ekran
+		// (cache + clients.navigate przy każdym starcie).
+		immediate: false,
 		onRegisteredSW(swUrl: string, r: ServiceWorkerRegistration | undefined) {
 			if (swCheckInterval) {
 				clearInterval(swCheckInterval);
