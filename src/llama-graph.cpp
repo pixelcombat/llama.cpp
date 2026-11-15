@@ -1330,6 +1330,7 @@ void llm_graph_result::reset() {
     t_inp_tokens  = nullptr;
     t_inp_embd    = nullptr;
     t_logits      = nullptr;
+    t_bdh_debug   = nullptr;
     t_embd        = nullptr;
     t_embd_pooled = nullptr;
     t_h_nextn     = nullptr;
@@ -1379,6 +1380,9 @@ void llm_graph_result::set_outputs(const llm_graph_params & params) {
     }
     if (t_h_nextn != nullptr) {
         ggml_set_output(t_h_nextn);
+    }
+    if (t_bdh_debug != nullptr) {
+        ggml_set_output(t_bdh_debug);
     }
     {
         const auto & embeddings_layer_inp = params.cparams.embeddings_layer_inp;
@@ -3864,12 +3868,16 @@ ggml_tensor * llm_graph_context::build_rs(
         ggml_view_2d(ctx0, states_all, state_size, n_seqs, states_all->nb[1], 0);
     ggml_build_forward_expand(gf, output_states);
 
-    // copy extra states which won't be changed further (between n_seqs and n_rs)
-    ggml_tensor * states_extra = ggml_view_2d(ctx0, states_all, state_size, n_rs - n_seqs, states_all->nb[1], (n_seqs - i0)*states_all->nb[1]);
-    ggml_build_forward_expand(gf,
-        ggml_cpy(ctx0,
-            states_extra,
-            ggml_view_2d(ctx0, s, state_size, (n_rs - n_seqs), s->nb[1], (rs_head + n_seqs)*s->nb[1])));
+  // copy extra states which won't be changed further (between n_seqs and n_rs)
+    if (n_rs > (uint32_t) n_seqs) {
+        ggml_tensor * states_extra =
+            ggml_view_2d(ctx0, states_all, state_size, n_rs - n_seqs, states_all->nb[1], (n_seqs - i0) * states_all->nb[1]);
+        ggml_build_forward_expand(
+            gf,
+            ggml_cpy(ctx0,
+                     states_extra,
+                     ggml_view_2d(ctx0, s, state_size, (n_rs - n_seqs), s->nb[1], (rs_head + n_seqs) * s->nb[1])));
+    }
 
     return output_states;
 }
@@ -4055,7 +4063,9 @@ void llm_graph_context::build_pooling(
         ggml_tensor * cls_norm) const {
     if (!cparams.embeddings) {
         // a graph without logits still computes t_embd, so that it is never empty
-        if (res->t_logits == nullptr && res->t_embd != nullptr) {
+        if (res->t_bdh_debug != nullptr) {
+            ggml_build_forward_expand(gf, res->t_bdh_debug);
+        } else if (res->t_logits == nullptr && res->t_embd != nullptr) {
             ggml_build_forward_expand(gf, res->t_embd);
         }
         return;
