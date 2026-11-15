@@ -1,4 +1,6 @@
 *.bak*
+convert_bdh_pt_to_gguf.py
+gguf-py/**/__pycache__/
 *.bak-*
 **/*.bak-go-*
 src/models/bdh.cpp.bak*

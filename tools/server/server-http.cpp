@@ -15,6 +15,17 @@
 #include <string>
 #include <thread>
 
+namespace {
+constexpr const char * bdh_sw_unregister_js = R"(
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+    await self.registration.unregister();
+    for (const key of await caches.keys()) await caches.delete(key);
+    for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
+})()));
+)";
+} // namespace
+
 //
 // HTTP implementation using cpp-httplib
 //
@@ -361,10 +372,19 @@ bool server_http_context::init_listener(const common_params & params) {
             return httplib::Server::HandlerResponse::Handled;
         }
 
-        // --path UI: beat static mount for index (Clear-Site-Data clears stale PWA/SW on phones).
+        // --path UI: beat static mount for index/sw (phones: stale Workbox SW).
         if (params.ui && !params.public_path.empty() && req.method == "GET") {
             const std::string & pfx = params.api_prefix;
             const std::string   pub = params.public_path;
+            const auto is_sw = [&]() {
+                return req.path == "/sw.js" || req.path == pfx + "/sw.js";
+            };
+            if (is_sw()) {
+                res.set_header("Cache-Control", "no-store");
+                res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
+                res.set_content(bdh_sw_unregister_js, "application/javascript");
+                return httplib::Server::HandlerResponse::Handled;
+            }
             const auto is_index = [&]() {
                 return req.path == "/" || req.path == "/index.html" || req.path == pfx + "/" ||
                        req.path == pfx + "/index.html";
@@ -374,7 +394,7 @@ bool server_http_context::init_listener(const common_params & params) {
                 if (in) {
                     std::ostringstream ss;
                     ss << in.rdbuf();
-                    res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                    res.set_header("Cache-Control", "no-store");
                     res.set_content(ss.str(), "text/html; charset=utf-8");
                     return httplib::Server::HandlerResponse::Handled;
                 }
@@ -403,17 +423,9 @@ bool server_http_context::init_listener(const common_params & params) {
 
             // Must register before set_mount_point — mount would otherwise serve workbox sw.js and stale PWA caches.
             auto serve_sw_unregister = [](const httplib::Request &, httplib::Response & res) {
-                static constexpr const char * sw_remove_js = R"(
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil((async () => {
-    await self.registration.unregister();
-    for (const key of await caches.keys()) await caches.delete(key);
-    for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
-})()));
-)";
-                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.set_header("Cache-Control", "no-store");
                 res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
-                res.set_content(sw_remove_js, "application/javascript");
+                res.set_content(bdh_sw_unregister_js, "application/javascript");
             };
 
             auto serve_index_clear = [pub](const httplib::Request &, httplib::Response & res) {
@@ -425,10 +437,12 @@ self.addEventListener('activate', (e) => e.waitUntil((async () => {
                 }
                 std::ostringstream ss;
                 ss << in.rdbuf();
-                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.set_header("Cache-Control", "no-store");
                 res.set_content(ss.str(), "text/html; charset=utf-8");
             };
 
+            srv->Get("/sw.js",                               serve_sw_unregister);
+            srv->Get("/index.html",                          serve_index_clear);
             srv->Get(params.api_prefix + "/sw.js",           serve_sw_unregister);
             srv->Get(params.api_prefix + "/",                serve_index_clear);
             srv->Get(params.api_prefix + "/index.html",      serve_index_clear);

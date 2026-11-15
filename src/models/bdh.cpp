@@ -290,7 +290,9 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     const int64_t N        = (int64_t) m.bdh_sparse_dim_multiplier * D / nh;
     const int64_t n_tokens = ubatch.n_tokens;
     const int64_t n_seqs   = ubatch.n_seqs;
-    const bool    rope_fast = n_tokens == 1;
+    const bool    rope_fast      = n_tokens == 1;
+    const bool    graph_debug    = bdh_debug_tag() != nullptr;
+    const bool    sparse_nt_path = !rope_fast || graph_debug; // decode T=1: gated_dec = xsp*ysp only
 
     llm_graph_input_rs * inp_rs = nullptr;
     const llama_memory_recurrent_context * mctx_recr = nullptr;
@@ -346,11 +348,13 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * x = rope_fast ? cur : ggml_cont(ctx0, cur);
 
-        ggml_tensor * xsp                         = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc, x));
-        ggml_tensor * x_sparse                    = bdh_sparse_3d_nt(ctx0, xsp, N, nh, n_tokens, rope_fast);
-        cb(x_sparse, "model.layers.x_sparse", il);
-        bdh_debug_select_il(x_sparse, "x_sparse", il);
-        if (!bdh_debug_tag()) {
+        ggml_tensor * xsp      = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc, x));
+        ggml_tensor * x_sparse = nullptr;
+        if (sparse_nt_path) {
+            x_sparse = bdh_sparse_3d_nt(ctx0, xsp, N, nh, n_tokens, rope_fast);
+            cb(x_sparse, "model.layers.x_sparse", il);
+            bdh_debug_select_il(x_sparse, "x_sparse", il);
+        } else if (!graph_debug) {
             bdh_debug_select_il(bdh_head_from_fused(ctx0, xsp, 0, N), "x_sparse_h", 0);
         }
 
@@ -424,12 +428,14 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
 
         ggml_tensor * ysp_nt  = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc_v, y_kv));
         ggml_tensor * ysp_nht = ggml_permute(ctx0, ysp_nt, 0, 2, 1, 3);
-        ggml_tensor * ysp     = rope_fast ? ggml_reshape_2d(ctx0, ysp_nht, nh * N, n_tokens)
-                                        : ggml_reshape_2d(ctx0, ggml_cont(ctx0, ysp_nht), nh * N, n_tokens);
-        ggml_tensor * y_sparse  = bdh_sparse_3d_nt(ctx0, ysp, N, nh, n_tokens, rope_fast);
-        bdh_debug_select_il(y_sparse, "y_sparse", il);
-        ggml_tensor * gated_ntn = ggml_mul(ctx0, x_sparse, y_sparse);
-        bdh_debug_select_il(gated_ntn, "gated_ntn", il);
+        ggml_tensor * ysp = rope_fast ? ggml_reshape_2d(ctx0, ysp_nht, nh * N, n_tokens)
+                                      : ggml_reshape_2d(ctx0, ggml_cont(ctx0, ysp_nht), nh * N, n_tokens);
+        if (sparse_nt_path) {
+            ggml_tensor * y_sparse = bdh_sparse_3d_nt(ctx0, ysp, N, nh, n_tokens, rope_fast);
+            bdh_debug_select_il(y_sparse, "y_sparse", il);
+            ggml_tensor * gated_ntn = ggml_mul(ctx0, x_sparse, y_sparse);
+            bdh_debug_select_il(gated_ntn, "gated_ntn", il);
+        }
         ggml_tensor * gated_dec = rope_fast ? ggml_mul(ctx0, xsp, ysp)
                                             : ggml_cont(ctx0, ggml_mul(ctx0, xsp, ysp));
         bdh_debug_select_il(gated_dec, "gated_dec", il);

@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
 		plugins: [
 			tailwindcss(),
 			sveltekit(),
+			// Workbox SW is overwritten post-build (scripts/replace-sw-unregister.mjs).
 			SvelteKitPWA(SVELTEKIT_PWA_OPTIONS),
 			splashScreenPlugin(),
 			buildInfoPlugin(),
