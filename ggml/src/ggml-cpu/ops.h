@@ -50,6 +50,8 @@ void ggml_compute_forward_l2_norm(const struct ggml_compute_params * params, str
 void ggml_compute_forward_out_prod(const struct ggml_compute_params * params, struct ggml_tensor * dst);
 void ggml_compute_forward_bdh_syn_head(const struct ggml_compute_params * params, struct ggml_tensor * dst);
 void ggml_compute_forward_bdh_gated_decoder(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+void ggml_compute_forward_bdh_enc_x_relu(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+void ggml_compute_forward_bdh_enc_v_relu(const struct ggml_compute_params * params, struct ggml_tensor * dst);
 void ggml_compute_forward_scale(const struct ggml_compute_params * params, struct ggml_tensor * dst);
 void ggml_compute_forward_set(const struct ggml_compute_params * params, struct ggml_tensor * dst);
 void ggml_compute_forward_cpy(const struct ggml_compute_params * params, struct ggml_tensor * dst);

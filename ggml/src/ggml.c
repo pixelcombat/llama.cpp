@@ -1118,9 +1118,11 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "GLU",
     "BDH_SYN_HEAD",
     "BDH_GATED_DECODER",
+    "BDH_ENC_X_RELU",
+    "BDH_ENC_V_RELU",
 };
 
-static_assert(GGML_OP_COUNT == 104, "GGML_OP_COUNT != 104");
+static_assert(GGML_OP_COUNT == 106, "GGML_OP_COUNT != 106");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1236,9 +1238,11 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "glu(x)",
     "bdh_syn_head(grid,qr,x)",
     "bdh_gated_decoder(dec,xsp,ysp)",
+    "bdh_enc_x_relu(w,x)",
+    "bdh_enc_v_relu(w,y)",
 };
 
-static_assert(GGML_OP_COUNT == 104, "GGML_OP_COUNT != 104");
+static_assert(GGML_OP_COUNT == 106, "GGML_OP_COUNT != 106");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -3552,6 +3556,44 @@ struct ggml_tensor * ggml_bdh_gated_decoder(
     result->src[0] = decoder;
     result->src[1] = xsp;
     result->src[2] = ysp;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_bdh_enc_x_relu(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * w,
+        struct ggml_tensor  * x) {
+    GGML_ASSERT(w->type == GGML_TYPE_F32);
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(w->ne[0] == x->ne[0]);
+    GGML_ASSERT(x->ne[1] == 1);
+
+    const int64_t ne[4] = { w->ne[1], 1, 1, 1 };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 2, ne);
+
+    result->op     = GGML_OP_BDH_ENC_X_RELU;
+    result->src[0] = w;
+    result->src[1] = x;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_bdh_enc_v_relu(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * w,
+        struct ggml_tensor  * y_kv) {
+    GGML_ASSERT(w->type == GGML_TYPE_F32);
+    GGML_ASSERT(y_kv->type == GGML_TYPE_F32);
+    GGML_ASSERT(w->ne[0] == y_kv->ne[0]);
+    GGML_ASSERT(w->ne[2] == y_kv->ne[2]);
+
+    const int64_t ne[4] = { w->ne[1], w->ne[2], 1, 1 };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 3, ne);
+
+    result->op     = GGML_OP_BDH_ENC_V_RELU;
+    result->src[0] = w;
+    result->src[1] = y_kv;
 
     return result;
 }

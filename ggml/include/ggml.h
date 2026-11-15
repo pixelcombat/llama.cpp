@@ -608,6 +608,8 @@ extern "C" {
 
         GGML_OP_BDH_SYN_HEAD,
         GGML_OP_BDH_GATED_DECODER,
+        GGML_OP_BDH_ENC_X_RELU,
+        GGML_OP_BDH_ENC_V_RELU,
 
         GGML_OP_COUNT,
     };
@@ -1549,6 +1551,16 @@ extern "C" {
             struct ggml_tensor  * decoder,
             struct ggml_tensor  * xsp,
             struct ggml_tensor  * ysp);
+
+    GGML_API struct ggml_tensor * ggml_bdh_enc_x_relu(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * w,
+            struct ggml_tensor  * x);
+
+    GGML_API struct ggml_tensor * ggml_bdh_enc_v_relu(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * w,
+            struct ggml_tensor  * y_kv);
 
     //
     // operations on tensors without backpropagation

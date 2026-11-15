@@ -10,7 +10,17 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <climits>
 #include <cmath>
+
+#ifdef GGML_CPU_USE_OPENBLAS
+#include <cblas.h>
+extern "C" void openblas_set_num_threads(int num_threads);
+#endif
+
+static inline float bdh_relu_f32(float v) {
+    return v > 0.0f ? v : 0.0f;
+}
 
 // ggml_compute_forward_dup
 
@@ -12077,6 +12087,117 @@ void ggml_compute_forward_bdh_gated_decoder(
     switch (dst->type) {
         case GGML_TYPE_F32:
             ggml_compute_forward_bdh_gated_decoder_f32(params, dst);
+            break;
+        default:
+            GGML_ABORT("fatal error");
+    }
+}
+
+// ggml_compute_forward_bdh_enc_x_relu
+
+static void ggml_compute_forward_bdh_enc_x_relu_f32(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    const ggml_tensor * w = dst->src[0];
+    const ggml_tensor * x = dst->src[1];
+
+    const int64_t D = w->ne[0];
+    const int64_t K = w->ne[1];
+    const size_t  sw0 = w->nb[0] / sizeof(float);
+    const size_t  sw1 = w->nb[1] / sizeof(float);
+
+    const float * W = (const float *) w->data;
+    const float * xv = (const float *) x->data;
+    float *       y  = (float *) dst->data;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const bool w_row = sw0 == 1 && sw1 == (size_t) D;
+
+    const int64_t kr = (K + nth - 1) / nth;
+    const int64_t k0 = kr * (int64_t) ith;
+    const int64_t k1 = MIN(k0 + kr, K);
+    for (int64_t k = k0; k < k1; ++k) {
+        float acc = 0.0f;
+        if (w_row) {
+            ggml_vec_dot_f32((int) D, &acc, 0, W + k * (size_t) D, 1, xv, 1, 1);
+        } else {
+            for (int64_t d = 0; d < D; ++d) {
+                acc += W[d * sw0 + k * sw1] * xv[d];
+            }
+        }
+        y[k] = bdh_relu_f32(acc);
+    }
+}
+
+void ggml_compute_forward_bdh_enc_x_relu(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    switch (dst->type) {
+        case GGML_TYPE_F32:
+            ggml_compute_forward_bdh_enc_x_relu_f32(params, dst);
+            break;
+        default:
+            GGML_ABORT("fatal error");
+    }
+}
+
+// ggml_compute_forward_bdh_enc_v_relu
+
+static void ggml_compute_forward_bdh_enc_v_relu_f32(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    const ggml_tensor * w     = dst->src[0];
+    const ggml_tensor * y_kv  = dst->src[1];
+
+    const int64_t D  = w->ne[0];
+    const int64_t N  = w->ne[1];
+    const int64_t nh = w->ne[2];
+
+    const size_t sw0 = w->nb[0] / sizeof(float);
+    const size_t sw1 = w->nb[1] / sizeof(float);
+    const size_t sw2 = w->nb[2] / sizeof(float);
+
+    const float * W = (const float *) w->data;
+    const float * Y = (const float *) y_kv->data;
+    float *       O = (float *) dst->data;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const bool w_contig = sw0 == 1 && sw1 == (size_t) D && sw2 == (size_t) (D * N);
+    const int64_t head_plane = D * N;
+
+    const int64_t hr = (nh + nth - 1) / nth;
+    const int64_t h0 = hr * (int64_t) ith;
+    const int64_t h1 = MIN(h0 + hr, nh);
+
+    for (int64_t h = h0; h < h1; ++h) {
+        const float * wh = w_contig ? W + h * (size_t) head_plane : W + h * sw2;
+        const float * yh = Y + h * (size_t) D;
+        float *       oh = O + h * (size_t) N;
+
+        for (int64_t n = 0; n < N; ++n) {
+            float acc = 0.0f;
+            if (w_contig) {
+                ggml_vec_dot_f32((int) D, &acc, 0, wh + n * (size_t) D, 1, yh, 1, 1);
+            } else {
+                for (int64_t d = 0; d < D; ++d) {
+                    acc += wh[d * sw0 + n * sw1] * yh[d];
+                }
+            }
+            oh[n] = bdh_relu_f32(acc);
+        }
+    }
+}
+
+void ggml_compute_forward_bdh_enc_v_relu(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    switch (dst->type) {
+        case GGML_TYPE_F32:
+            ggml_compute_forward_bdh_enc_v_relu_f32(params, dst);
             break;
         default:
             GGML_ABORT("fatal error");
