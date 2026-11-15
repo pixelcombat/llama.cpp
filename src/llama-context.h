@@ -86,6 +86,14 @@ struct llama_context {
 
     float * get_embeddings();
     float * get_embeddings_ith(int32_t i);
+
+    size_t bdh_debug_nbytes() const;
+    void   bdh_debug_shape(int64_t ne_out[4]) const;
+    size_t bdh_debug_copy(float * dst, size_t capacity_bytes) const;
+
+    void bdh_synaptic_reset();
+    void bdh_synaptic_set_enabled(bool enabled);
+    bool bdh_synaptic_enabled() const;
     float * get_embeddings_seq(llama_seq_id seq_id);
 
     float * get_embeddings_nextn();
@@ -315,6 +323,11 @@ private:
     // embeddings output (2-dimensional array: [n_outputs][n_embd])
     // populated only when pooling_type == LLAMA_POOLING_TYPE_NONE
     buffer_view<float> embd = {nullptr, 0};
+
+    std::vector<float> bdh_debug;
+    int64_t            bdh_debug_ne[4] = { 0, 0, 0, 0 };
+
+    bool bdh_synaptic = true;
 
     // hidden state required by the nextn layers (2-dimensional array: [n_outputs][n_embd])
     // populated only when cparams.embeddings_nextn is enabled and the model graph

@@ -563,6 +563,13 @@ llama_context::llama_context(
             moe_cache = std::make_unique<llama_moe_cache>(model, model.no_alloc(), backend_ptrs, backend_buft, cparams.moe_cache_size);
         }
 
+        if (model.arch == LLM_ARCH_BDH) {
+            const char * env_syn = std::getenv("BDH_SYNAPTIC");
+            if (env_syn && env_syn[0] == '0') {
+                bdh_synaptic = false;
+            }
+        }
+
         sched_reserve();
 
         if (!cparams.flash_attn) {
@@ -604,7 +611,22 @@ llama_context::~llama_context() {
             }
         }
     }
+
     ggml_opt_free(opt_ctx);
+}
+
+void llama_context::bdh_synaptic_reset() {
+    if (memory) {
+        memory->clear(true);
+    }
+}
+
+void llama_context::bdh_synaptic_set_enabled(bool enabled) {
+    bdh_synaptic = enabled;
+}
+
+bool llama_context::bdh_synaptic_enabled() const {
+    return bdh_synaptic;
 }
 
 void llama_context::resolve_fused_ops(const llama_memory_context_i * mctx, uint32_t n_seqs) {
@@ -1090,6 +1112,25 @@ float * llama_context::get_embeddings() {
 
 llama_token * llama_context::get_sampled_tokens()  const{
     return sampling.sampled.data;
+}
+
+size_t llama_context::bdh_debug_nbytes() const {
+    return bdh_debug.size() * sizeof(float);
+}
+
+void llama_context::bdh_debug_shape(int64_t ne_out[4]) const {
+    for (int i = 0; i < 4; ++i) {
+        ne_out[i] = bdh_debug_ne[i];
+    }
+}
+
+size_t llama_context::bdh_debug_copy(float * dst, size_t capacity_bytes) const {
+    const size_t nbytes = bdh_debug.size() * sizeof(float);
+    if (!dst || capacity_bytes < nbytes) {
+        return nbytes;
+    }
+    memcpy(dst, bdh_debug.data(), nbytes);
+    return nbytes;
 }
 
 float * llama_context::get_embeddings_ith(int32_t i) {
@@ -1694,21 +1735,34 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
         ggml_backend_tensor_get_async(backend_res, t_logits, logits.data, 0, n_outputs*n_vocab*sizeof(float));
     }
 
-    // extract embeddings
-    if (embd.data && t_embd) {
-        ggml_backend_t backend_embd = ggml_backend_sched_get_tensor_backend(sched.get(), t_embd);
-        GGML_ASSERT(backend_embd != nullptr);
+        auto * t_bdh_debug = res->get_bdh_debug();
+        if (t_bdh_debug) {
+            ggml_backend_t backend_dbg = ggml_backend_sched_get_tensor_backend(sched.get(), t_bdh_debug);
+            if (backend_dbg) {
+                const size_t nbytes = ggml_nbytes(t_bdh_debug);
+                bdh_debug.resize(nbytes / sizeof(float));
+                for (int i = 0; i < 4; ++i) {
+                    bdh_debug_ne[i] = t_bdh_debug->ne[i];
+                }
+                ggml_backend_tensor_get_async(backend_dbg, t_bdh_debug, bdh_debug.data(), 0, nbytes);
+            }
+        }
 
-        switch (cparams.pooling_type) {
-            case LLAMA_POOLING_TYPE_NONE:
-                {
-                    // extract token embeddings
-                    GGML_ASSERT(embd.data != nullptr);
-                    const uint32_t n_embd_out = hparams.n_embd_out();
+        // extract embeddings
+        if (embd.data && t_embd) {
+            ggml_backend_t backend_embd = ggml_backend_sched_get_tensor_backend(sched.get(), t_embd);
+            GGML_ASSERT(backend_embd != nullptr);
 
-                    GGML_ASSERT(n_outputs*n_embd_out <= (int64_t) embd.size);
-                    ggml_backend_tensor_get_async(backend_embd, t_embd, embd.data, 0, n_outputs*n_embd_out*sizeof(float));
-                } break;
+            switch (cparams.pooling_type) {
+                case LLAMA_POOLING_TYPE_NONE:
+                    {
+                        // extract token embeddings
+                        GGML_ASSERT(embd.data != nullptr);
+                        const uint32_t n_embd_out = hparams.n_embd_out();
+
+                        GGML_ASSERT(n_outputs*n_embd_out <= (int64_t) embd.size);
+                        ggml_backend_tensor_get_async(backend_embd, t_embd, embd.data, 0, n_outputs*n_embd_out*sizeof(float));
+                    } break;
             case LLAMA_POOLING_TYPE_MEAN:
             case LLAMA_POOLING_TYPE_CLS:
             case LLAMA_POOLING_TYPE_LAST:
@@ -2079,6 +2133,19 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
                 GGML_ASSERT( n_outputs_prev + n_outputs <= n_outputs_all);
                 GGML_ASSERT((n_outputs_prev + n_outputs)*n_vocab <= (int64_t) logits.size);
                 ggml_backend_tensor_get_async(backend_res, t_logits, logits_out, 0, n_outputs*n_vocab*sizeof(float));
+            }
+        }
+
+        auto * t_bdh_dbg = res->get_bdh_debug();
+        if (t_bdh_dbg) {
+            ggml_backend_t backend_dbg = ggml_backend_sched_get_tensor_backend(sched.get(), t_bdh_dbg);
+            if (backend_dbg) {
+                const size_t nbytes = ggml_nbytes(t_bdh_dbg);
+                bdh_debug.resize(nbytes / sizeof(float));
+                for (int i = 0; i < 4; ++i) {
+                    bdh_debug_ne[i] = t_bdh_dbg->ne[i];
+                }
+                ggml_backend_tensor_get_async(backend_dbg, t_bdh_dbg, bdh_debug.data(), 0, nbytes);
             }
         }
 
@@ -2534,6 +2601,9 @@ uint32_t llama_context::graph_max_nodes(uint32_t n_tokens) const {
     } else if (model.arch == LLM_ARCH_HRM_TEXT) {
         // the 128-slot looped graph needs roughly one stack per token budget
         res = std::max<uint32_t>(n_tokens * 80, 64u * model.n_tensors());
+    } else if (model.arch == LLM_ARCH_BDH) {
+        // sparse BDH: per-head loops + stack_heads (dup/cont na głowach)
+        res = std::max<uint32_t>(n_tokens * 1280, 256u * model.n_tensors()) + 2048;
     } else if (model.arch == LLM_ARCH_QWEN3NEXT ||
         model.arch == LLM_ARCH_KIMI_LINEAR ||
         model.arch == LLM_ARCH_BAILINGMOE3 ||
@@ -2710,26 +2780,27 @@ llm_graph_params llama_context::graph_params(
                       const llama_ubatch & ubatch,
             const llama_memory_context_i * mctx,
                           llm_graph_type   gtype) const {
-    return {
-        /*.arch        =*/ model.arch,
-        /*.hparams     =*/ model.hparams,
-        /*.cparams     =*/ cparams,
-        /*.ubatch      =*/ ubatch,
-        /*.gtype       =*/ gtype,
-        /*.sched       =*/ sched.get(),
-        /*.backend_cpu =*/ backend_cpu,
-        /*.cvec        =*/ cvec.get(),
-        /*.loras       =*/ loras.get(),
-        /*.mctx        =*/ mctx,
-        /*.cross       =*/ &cross,
-        /*.moe_cache   =*/ moe_cache.get(),
-        /*.prec_policy =*/ &model.prec_policy,
-        /*.hdmd        =*/ model.hdmd.rot.empty() ? nullptr : &model.hdmd,
-        /*.samplers    =*/ sampling.samplers,
-        /*.n_outputs   =*/ n_outputs,
-        /*.cb          =*/ graph_get_cb(),
-        /*.res         =*/ res,
-    };
+    llm_graph_params p;
+    p.arch         = model.arch;
+    p.hparams      = model.hparams;
+    p.cparams      = cparams;
+    p.ubatch       = ubatch;
+    p.gtype        = gtype;
+    p.sched        = sched.get();
+    p.backend_cpu  = backend_cpu;
+    p.cvec         = cvec.get();
+    p.loras        = loras.get();
+    p.mctx         = mctx;
+    p.cross        = &cross;
+    p.moe_cache    = moe_cache.get();
+    p.prec_policy  = &model.prec_policy;
+    p.hdmd         = model.hdmd.rot.empty() ? nullptr : &model.hdmd;
+    p.samplers     = sampling.samplers;
+    p.n_outputs    = n_outputs;
+    p.cb           = graph_get_cb();
+    p.res          = res;
+    p.bdh_synaptic = model.arch == LLM_ARCH_BDH && bdh_synaptic && !std::getenv("BDH_DEBUG_OUT");
+    return p;
 }
 
 void llama_context::sched_graph_realloc(ggml_backend_sched_t sched, ggml_cgraph * gf, bool backend_ids_changed, bool graph_size_changed, void * user_data) {
@@ -4321,6 +4392,37 @@ float * llama_get_embeddings_seq(llama_context * ctx, llama_seq_id seq_id) {
     return ctx->get_embeddings_seq(seq_id);
 }
 
+size_t llama_bdh_debug_nbytes(llama_context * ctx) {
+    ctx->synchronize();
+    return ctx->bdh_debug_nbytes();
+}
+
+void llama_bdh_debug_shape(llama_context * ctx, int64_t ne_out[4]) {
+    ctx->synchronize();
+    ctx->bdh_debug_shape(ne_out);
+}
+
+size_t llama_bdh_debug_copy(llama_context * ctx, float * dst, size_t capacity_bytes) {
+    ctx->synchronize();
+    return ctx->bdh_debug_copy(dst, capacity_bytes);
+}
+
+void llama_bdh_synaptic_reset(llama_context * ctx) {
+    if (ctx) {
+        ctx->bdh_synaptic_reset();
+    }
+}
+
+void llama_bdh_synaptic_set_enabled(llama_context * ctx, bool enabled) {
+    if (ctx) {
+        ctx->bdh_synaptic_set_enabled(enabled);
+    }
+}
+
+bool llama_bdh_synaptic_get_enabled(llama_context * ctx) {
+    return ctx ? ctx->bdh_synaptic_enabled() : false;
+}
+
 void llama_set_embeddings_nextn(llama_context * ctx, bool value, bool masked) {
     ctx->set_embeddings_nextn(value, masked);
 }
@@ -4785,3 +4887,6 @@ llama_memory_breakdown llama_get_memory_breakdown(const struct llama_context * c
 llama_context * llama_get_ctx_other(struct llama_context * ctx) {
     return ctx->get_cparams().ctx_other;
 }
+
+
+

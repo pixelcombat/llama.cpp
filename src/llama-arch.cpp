@@ -136,6 +136,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_LFM2,             "lfm2"             },
     { LLM_ARCH_LFM2MOE,          "lfm2moe"          },
     { LLM_ARCH_LFM3,             "lfm3"             },
+    { LLM_ARCH_BDH,              "bdh"              },
     { LLM_ARCH_DREAM,            "dream"            },
     { LLM_ARCH_SMALLTHINKER,     "smallthinker"     },
     { LLM_ARCH_LLADA,            "llada"            },
@@ -841,6 +842,10 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_LILICORR_ANCHOR_OUT_HEAD,               "lilicorr.anchor_out_head" },
     { LLM_TENSOR_ATTN_V_GATE,                            "blk.%d.attn_v_gate" },
     { LLM_TENSOR_ATTN_V_EXPS,                            "blk.%d.attn_v_exps" },
+    { LLM_TENSOR_BDH_ENCODER,                            "bdh.encoder" },
+    { LLM_TENSOR_BDH_ENCODER_V,                          "bdh.encoder_v" },
+    { LLM_TENSOR_BDH_DECODER,                            "bdh.decoder" },
+    { LLM_TENSOR_BDH_ATTN_FREQS,                         "bdh.attn.freqs" },
 };
 
 // declare information about the model weight tensors:
@@ -1197,6 +1202,10 @@ static const std::map<llm_tensor, llm_tensor_info> LLM_TENSOR_INFOS = {
 
     {LLM_TENSOR_ATTN_V_GATE,                {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT}},
     {LLM_TENSOR_ATTN_V_EXPS,                {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+    {LLM_TENSOR_BDH_ENCODER,                {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL_MAT}},
+    {LLM_TENSOR_BDH_ENCODER_V,              {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL_MAT}},
+    {LLM_TENSOR_BDH_DECODER,                {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL_MAT}},
+    {LLM_TENSOR_BDH_ATTN_FREQS,             {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL}},
 };
 
 LLM_KV::LLM_KV(llm_arch arch, const char * suffix) : arch(arch), suffix(suffix) {}
@@ -1268,6 +1277,7 @@ bool llm_arch_is_recurrent(const llm_arch & arch) {
         case LLM_ARCH_RWKV6QWEN2:
         case LLM_ARCH_RWKV7:
         case LLM_ARCH_ARWKV7:
+        case LLM_ARCH_BDH:
             return true;
         default:
             return false;
@@ -1346,6 +1356,7 @@ bool llm_arch_supports_mixed_batch(const llm_arch & arch) {
         case LLM_ARCH_DFLASH:
         case LLM_ARCH_GEMMA4_ASSISTANT:
         case LLM_ARCH_LIMITE:
+        case LLM_ARCH_BDH:
             return false;
         default:
             return true;

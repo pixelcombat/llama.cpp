@@ -206,6 +206,10 @@ uint32_t llama_hparams::n_embd_v_gqa_max() const {
 }
 
 uint32_t llama_hparams::n_embd_r() const {
+    if (bdh_sparse_dim_multiplier > 0) {
+        return 1;
+    }
+
     if (wkv_head_size != 0) {
         // for RWKV models
         return token_shift_count * n_embd;
@@ -234,6 +238,12 @@ uint32_t llama_hparams::n_embd_r() const {
 }
 
 uint32_t llama_hparams::n_embd_s() const {
+    if (bdh_sparse_dim_multiplier > 0) {
+        const uint32_t nh = n_head(0);
+        const uint32_t N  = bdh_sparse_dim_multiplier * n_embd / nh;
+        return nh * N * n_embd;
+    }
+
     if (wkv_head_size != 0) {
         // corresponds to RWKV's wkv_states size
         return n_embd * wkv_head_size;

@@ -210,6 +210,9 @@ struct llama_hparams {
     uint32_t ssm_dt_rank = 0;
     uint32_t ssm_n_group = 0;
 
+    // BDH synaptic grid per layer: nh * N * n_embd (flat in RS cache)
+    uint32_t bdh_sparse_dim_multiplier = 0;
+
     // for MiniMax-Text-01 linear attention
     uint32_t n_embd_head_la = 0;
 

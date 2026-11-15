@@ -1169,6 +1169,16 @@ extern "C" {
     // otherwise: float[n_embd] (1-dimensional)
     LLAMA_API float * llama_get_embeddings_seq(struct llama_context * ctx, llama_seq_id seq_id);
 
+    // BDH: tensor from BDH_DEBUG_OUT (after decode); layout ggml ne[0] fastest
+    LLAMA_API size_t  llama_bdh_debug_nbytes(struct llama_context * ctx);
+    LLAMA_API void    llama_bdh_debug_shape(struct llama_context * ctx, int64_t ne_out[4]);
+    LLAMA_API size_t  llama_bdh_debug_copy(struct llama_context * ctx, float * dst, size_t capacity_bytes);
+
+    // BDH synaptic grid (streaming inference)
+    LLAMA_API void llama_bdh_synaptic_reset(struct llama_context * ctx);
+    LLAMA_API void llama_bdh_synaptic_set_enabled(struct llama_context * ctx, bool enabled);
+    LLAMA_API bool llama_bdh_synaptic_get_enabled(struct llama_context * ctx);
+
     //
     // backend sampling API [EXPERIMENTAL]
     // note: use only if the llama_context was created with at least one llama_sampler_seq_config
