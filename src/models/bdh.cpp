@@ -111,28 +111,58 @@ static ggml_tensor * bdh_rope_apply(
     return ggml_cont(ctx, ggml_add(ctx, ggml_mul(ctx, v, ph_cos), ggml_mul(ctx, v_rot, ph_sin)));
 }
 
-static std::vector<ggml_tensor *> bdh_encoder_heads(
+// GGUF encoder [N,D,nh] → jeden macierz [D, nh*N] (kolumny = transpozycje głów).
+static ggml_tensor * bdh_encoder_weights_2d(
+        ggml_context * ctx,
+        ggml_tensor *  encoder,
+        int64_t        n_head,
+        int64_t        N,
+        int64_t        D) {
+    GGML_UNUSED(n_head);
+    GGML_UNUSED(N);
+    ggml_tensor * w = ggml_permute(ctx, encoder, 1, 0, 2, 3);
+    w               = ggml_cont(ctx, w);
+    return ggml_reshape_2d(ctx, w, D, n_head * N);
+}
+
+static ggml_tensor * bdh_encoder_fused(
         ggml_context * ctx,
         ggml_tensor *  encoder,
         ggml_tensor *  x,
         int64_t        n_head,
-        int64_t        N) {
-    std::vector<ggml_tensor *> heads;
-    heads.reserve(n_head);
+        int64_t        N,
+        int64_t        D) {
+    ggml_tensor * w = bdh_encoder_weights_2d(ctx, encoder, n_head, N, D);
+    return ggml_relu(ctx, ggml_mul_mat(ctx, w, x));
+}
 
-    for (int64_t h = 0; h < n_head; ++h) {
-        // checkpoint: encoder[h] to [D,N]; w gguf jest [N,D] na głowę — transpozycja przed mul_mat
-        ggml_tensor * w_nd = ggml_view_3d(ctx, encoder, N, x->ne[0], 1, encoder->nb[1], encoder->nb[2], h * encoder->nb[2]);
-        w_nd                 = ggml_cont(ctx, w_nd);
-        ggml_tensor * w      = ggml_cont(ctx, ggml_transpose(ctx, w_nd));
-        ggml_tensor * xsp    = ggml_relu(ctx, ggml_mul_mat(ctx, w, x));
-        if (h == 0) {
-            bdh_debug_select_il(xsp, "x_sparse_h", 0);
-        }
-        heads.push_back(xsp);
+// Z (nh*N,T) → widok [N,T] jak stary stack_heads_dim2 (dim głów = 2).
+static ggml_tensor * bdh_sparse_3d_nt(
+        ggml_context * ctx,
+        ggml_tensor *  fused,
+        int64_t        N,
+        int64_t        nh,
+        int64_t        n_tokens) {
+    ggml_tensor * t = ggml_reshape_3d(ctx, fused, N, nh, n_tokens);
+    return ggml_cont(ctx, ggml_permute(ctx, t, 0, 2, 1, 3));
+}
+
+static ggml_tensor * bdh_head_from_fused(ggml_context * ctx, ggml_tensor * fused, int64_t h, int64_t N) {
+    return ggml_view_2d(
+        ctx, fused, N, fused->ne[1], fused->nb[1], (size_t) h * (size_t) N * ggml_element_size(fused));
+}
+
+static ggml_tensor * bdh_stack_head_rows(
+        ggml_context *                    ctx,
+        const std::vector<ggml_tensor *> & heads,
+        int64_t                           N) {
+    GGML_ASSERT(!heads.empty());
+    ggml_tensor * out = ggml_reshape_2d(ctx, heads[0], N, heads[0]->ne[1]);
+    for (size_t i = 1; i < heads.size(); ++i) {
+        ggml_tensor * h = ggml_reshape_2d(ctx, heads[i], N, heads[i]->ne[1]);
+        out             = ggml_concat(ctx, out, h, 0);
     }
-
-    return heads;
+    return out;
 }
 
 static ggml_tensor * bdh_attn_head(
@@ -280,10 +310,13 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * x = ggml_cont(ctx0, cur);
 
-        std::vector<ggml_tensor *> x_sparse_heads = bdh_encoder_heads(ctx0, m.bdh_encoder, x, nh, N);
-        ggml_tensor * x_sparse                    = stack_heads_dim2(ctx0, x_sparse_heads, N, n_tokens);
+        ggml_tensor * xsp                         = bdh_encoder_fused(ctx0, m.bdh_encoder, x, nh, N, D);
+        ggml_tensor * x_sparse                    = bdh_sparse_3d_nt(ctx0, xsp, N, nh, n_tokens);
         cb(x_sparse, "model.layers.x_sparse", il);
         bdh_debug_select_il(x_sparse, "x_sparse", il);
+        if (!bdh_debug_tag()) {
+            bdh_debug_select_il(bdh_head_from_fused(ctx0, xsp, 0, N), "x_sparse_h", 0);
+        }
 
         ggml_tensor * grid_s = nullptr;
         if (syn_step && inp_rs) {
@@ -296,7 +329,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         grid_out_heads.reserve(nh);
         const size_t head_grid_bytes = (size_t) N * (size_t) D * sizeof(float);
         for (int64_t h = 0; h < nh; ++h) {
-            ggml_tensor * qk = ggml_cont(ctx0, x_sparse_heads[(size_t) h]);
+            ggml_tensor * qk = bdh_head_from_fused(ctx0, xsp, h, N);
             ggml_tensor * y_h;
             if (syn_step && grid_s) {
                 // Stan głowy (N,D) — zgodnie z streaming.py grids[layer,h]
@@ -338,30 +371,22 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         cb(y_kv, "model.layers.y_kv", il);
         bdh_debug_select_il(y_kv, "y_kv", il);
 
+        ggml_tensor * w_enc_v = bdh_encoder_weights_2d(ctx0, m.bdh_encoder_v, nh, N, D);
         std::vector<ggml_tensor *> y_sparse_heads;
         y_sparse_heads.reserve(nh);
         for (int64_t h = 0; h < nh; ++h) {
             ggml_tensor * y_h = ggml_view_3d(ctx0, y_kv, D, n_tokens, 1, y_kv->nb[1], y_kv->nb[2], h * y_kv->nb[2]);
-            y_h = ggml_reshape_2d(ctx0, ggml_cont(ctx0, y_h), D, n_tokens);
-
-            ggml_tensor * w_nd = ggml_view_3d(ctx0, m.bdh_encoder_v, N, D, 1, m.bdh_encoder_v->nb[1], m.bdh_encoder_v->nb[2], h * m.bdh_encoder_v->nb[2]);
-            w_nd                 = ggml_cont(ctx0, w_nd);
-            ggml_tensor * w      = ggml_cont(ctx0, ggml_transpose(ctx0, w_nd));
-            y_sparse_heads.push_back(ggml_relu(ctx0, ggml_mul_mat(ctx0, w, y_h)));
+            y_h               = ggml_reshape_2d(ctx0, y_h, D, n_tokens);
+            ggml_tensor * w_h = ggml_view_2d(ctx0, w_enc_v, D, N, w_enc_v->nb[1], (size_t) h * N * ggml_element_size(w_enc_v));
+            y_sparse_heads.push_back(ggml_relu(ctx0, ggml_mul_mat(ctx0, w_h, y_h)));
         }
 
-        ggml_tensor * y_sparse = stack_heads_dim2(ctx0, y_sparse_heads, N, n_tokens);
+        ggml_tensor * ysp      = bdh_stack_head_rows(ctx0, y_sparse_heads, N);
+        ggml_tensor * y_sparse  = bdh_sparse_3d_nt(ctx0, ysp, N, nh, n_tokens);
         bdh_debug_select_il(y_sparse, "y_sparse", il);
-        std::vector<ggml_tensor *> gated_heads;
-        gated_heads.reserve(nh);
-        for (int64_t h = 0; h < nh; ++h) {
-            gated_heads.push_back(ggml_cont(
-                ctx0, ggml_mul(ctx0, x_sparse_heads[(size_t) h], y_sparse_heads[(size_t) h])));
-        }
-        ggml_tensor * gated_ntn = stack_heads_dim2(ctx0, gated_heads, N, n_tokens);
+        ggml_tensor * gated_ntn = ggml_mul(ctx0, x_sparse, y_sparse);
         bdh_debug_select_il(gated_ntn, "gated_ntn", il);
-        ggml_tensor * gated_dec = stack_heads_dim0(ctx0, gated_heads, N, n_tokens);
-        gated_dec                = ggml_cont(ctx0, gated_dec);
+        ggml_tensor * gated_dec = ggml_cont(ctx0, ggml_mul(ctx0, xsp, ysp));
         bdh_debug_select_il(gated_dec, "gated_dec", il);
         ggml_tensor * y_mlp = build_lora_mm(m.bdh_decoder, gated_dec, nullptr);
         cb(y_mlp, "model.layers.y_mlp", il);
