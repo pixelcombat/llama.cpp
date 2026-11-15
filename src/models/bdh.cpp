@@ -286,12 +286,18 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         mctx_recr = static_cast<const llama_memory_recurrent_context *>(mctx);
     }
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
-    const bool rs_direct = syn_step && std::getenv("BDH_RS_DIRECT") &&
-                           std::strcmp(std::getenv("BDH_RS_DIRECT"), "1") == 0;
-    if (syn_step && !rs_direct) {
+    const bool rs_fast  = syn_step && n_seqs == 1 && mctx_recr->get_n_rs() == (uint32_t) n_seqs &&
+                          std::getenv("BDH_RS_DIRECT") && std::strcmp(std::getenv("BDH_RS_DIRECT"), "1") == 0;
+    if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
     const int32_t state_size = (int32_t) (nh * N * D);
+    const auto    bdh_rs_view = [mctx_recr, state_size, n_seqs](ggml_context * ctx, ggml_tensor * states,
+                                                                 ggml_tensor * ids) -> ggml_tensor * {
+        GGML_UNUSED(ids);
+        const uint32_t head = mctx_recr->get_head();
+        return ggml_view_2d(ctx, states, state_size, n_seqs, states->nb[1], (size_t) head * states->nb[1]);
+    };
 
     ggml_tensor * cur = build_inp_embd(model.tok_embd);
     cb(cur, "model.embed_tokens", -1);
@@ -331,13 +337,13 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         }
 
         ggml_tensor * grid_s = nullptr;
-        if (syn_step && rs_direct) {
-            const auto   kv_head = mctx_recr->get_head();
-            ggml_tensor * s_slot = mctx_recr->get_s_l(il);
-            grid_s               = ggml_view_2d(
-                ctx0, s_slot, state_size, 1, s_slot->nb[1], (size_t) kv_head * s_slot->nb[1]);
-        } else if (syn_step && inp_rs) {
-            grid_s = build_rs(inp_rs, mctx_recr->get_s_l(il), state_size, (int32_t) n_seqs);
+        if (syn_step) {
+            if (rs_fast) {
+                ggml_tensor * states = ggml_reshape_2d(ctx0, mctx_recr->get_s_l(il), state_size, mctx_recr->get_s_l(il)->ne[1]);
+                grid_s               = bdh_rs_view(ctx0, states, nullptr);
+            } else if (inp_rs) {
+                grid_s = build_rs(inp_rs, mctx_recr->get_s_l(il), state_size, (int32_t) n_seqs);
+            }
         }
 
         std::vector<ggml_tensor *> attn_heads;
@@ -354,11 +360,11 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                     ctx0, grid_s, N, D, N * (int64_t) sizeof(float), (size_t) h * head_grid_bytes);
                 ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
                 y_h = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
-                if (rs_direct) {
-                    ggml_build_forward_expand(
-                        gf, ggml_add_inplace(ctx0, grid_h, bdh_grid_outer_delta(ctx0, qr, x)));
+                ggml_tensor * grid_w = bdh_grid_head_write_nd(ctx0, grid_h, qr, x);
+                if (rs_fast) {
+                    ggml_build_forward_expand(gf, ggml_cpy(ctx0, grid_w, grid_h));
                 } else {
-                    grid_out_heads.push_back(bdh_grid_head_write_nd(ctx0, grid_h, qr, x));
+                    grid_out_heads.push_back(grid_w);
                 }
             } else {
                 y_h = bdh_attn_head(ctx0, ph_cos, ph_sin, qk, x, n_tokens, (int) h);
@@ -373,7 +379,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
             attn_heads.push_back(y_ln);
         }
 
-        if (syn_step && !rs_direct && inp_rs && grid_s && grid_out_heads.size() == (size_t) nh) {
+        if (syn_step && !rs_fast && inp_rs && grid_s && grid_out_heads.size() == (size_t) nh) {
             const auto kv_head = mctx_recr->get_head();
             ggml_tensor * grid_out = stack_heads_dim2(ctx0, grid_out_heads, N, D);
             grid_out               = ggml_cont(ctx0, ggml_reshape_2d(ctx0, grid_out, state_size, n_seqs));

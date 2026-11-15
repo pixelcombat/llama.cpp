@@ -3861,6 +3861,11 @@ ggml_tensor * llm_graph_context::build_rs(
     // {state_size, rs_size} -> {state_size, n_rs - i0}
     const int64_t i0 = n_rs - state_copy->ne[0];
 
+    // BDH / Mamba-style: one active sequence, identity slot → view cache, no gather.
+    if (get_state_rows && n_seqs == 1 && n_rs == (uint32_t) n_seqs) {
+        return get_state_rows(ctx0, states, state_copy_main);
+    }
+
     ggml_tensor * states_all = ggml_get_rows(ctx0, states, state_copy);
 
     ggml_tensor * output_states = get_state_rows ?

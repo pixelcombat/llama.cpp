@@ -1273,7 +1273,6 @@ void ggml_compute_forward_mul_mat(
         ggml_compute_forward_fwht(params, dst);
         return;
     }
-
     // If tiled is supported, it will execute the full op here and we return
     if (ggml_compute_forward_mul_mat_tiled(params, dst)) {
         return;
@@ -3163,7 +3162,24 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
         if (n_fused > 0) {
             node_n += n_fused;
         } else {
-            ggml_compute_forward(&params, node);
+            static int cpu_node_us = -1;
+            if (cpu_node_us < 0) {
+                const char * env = getenv("GGML_CPU_NODE_US");
+                cpu_node_us      = (env && atoi(env) > 0) ? 1 : 0;
+            }
+            if (cpu_node_us && state->ith == 0 && params.nth == 1) {
+                const int64_t t0 = ggml_time_us();
+                ggml_compute_forward(&params, node);
+                const int64_t dt = ggml_time_us() - t0;
+                fprintf(stderr,
+                        "ggml_cpu_node: op=%s name=%s nbytes=%.2f MiB us=%.1f\n",
+                        ggml_op_name(node->op),
+                        node->name[0] ? node->name : "?",
+                        (double) ggml_nbytes(node) / (1024.0 * 1024.0),
+                        (double) dt);
+            } else {
+                ggml_compute_forward(&params, node);
+            }
         }
 
         if (state->ith == 0 && cplan->abort_callback &&
