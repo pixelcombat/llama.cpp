@@ -479,7 +479,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     res->t_embd = cur;
 
     const bool no_lora      = loras == nullptr || loras->empty();
-    const bool out_mm_fused = out_fused && model.output_s == nullptr && no_lora &&
+    const bool out_mm_fused = out_fused && cur->ne[1] == 1 && model.output_s == nullptr && no_lora &&
                               model.output->type == GGML_TYPE_F32;
     if (out_mm_fused) {
         cur = ggml_bdh_lm_head(ctx0, model.output, cur);

@@ -3332,6 +3332,13 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
             LLAMA_LOG_WARN("%s: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect\n", __func__);
         }
 
+        // BPE models (e.g. bdh-100m-bpe8k-pl) may alias BOS and EOS to ',' — do not stop generation on that id.
+        if (special_eos_id != LLAMA_TOKEN_NULL && special_bos_id == special_eos_id) {
+            special_eog_ids.erase(special_eos_id);
+            LLAMA_LOG_WARN("%s: eos == bos (id %d); removed from EOG — generation will not stop on this token\n",
+                    __func__, (int) special_eos_id);
+        }
+
         if (special_eot_id != LLAMA_TOKEN_NULL && special_eog_ids.count(special_eot_id) == 0) {
             special_eog_ids.insert(special_eot_id);
             LLAMA_LOG_WARN("%s: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect\n", __func__);
