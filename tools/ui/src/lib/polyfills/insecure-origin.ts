@@ -1,6 +1,8 @@
+import { subtleDigest } from './subtle-digest';
+
 /**
  * Polyfills for APIs that are missing or restricted on plain HTTP (non-localhost).
- * Runs before the rest of the client bundle via hooks.client.ts and app.html.
+ * Prepend bundle (esbuild) runs before the single client bundle; +layout repeats defensively.
  */
 export function installInsecureOriginPolyfills(): void {
 	if (typeof globalThis === 'undefined') return;
@@ -36,7 +38,10 @@ export function installInsecureOriginPolyfills(): void {
 
 	if (!cryptoObj.subtle) {
 		const noop = async (): Promise<null> => null;
-		const digest = async (): Promise<ArrayBuffer> => new Uint8Array(32).buffer;
+		const digest = (
+			algorithm: AlgorithmIdentifier,
+			data: BufferSource
+		): Promise<ArrayBuffer> => subtleDigest(algorithm, data);
 		const subtle = {
 			decrypt: noop,
 			deriveBits: noop,
