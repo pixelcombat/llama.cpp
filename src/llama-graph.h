@@ -909,7 +909,8 @@ struct llm_graph_params {
             gtype == other.gtype &&
             cvec  == other.cvec  &&
             loras == other.loras &&
-            cross == other.cross;
+            cross == other.cross &&
+            bdh_synaptic == other.bdh_synaptic;
     }
 };
 
