@@ -1,4 +1,5 @@
 #include "bdh-syn.cuh"
+#include "common.cuh"
 
 #include <cstdint>
 
@@ -48,11 +49,19 @@ void ggml_cuda_bdh_syn_head(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
     const float * xv = (const float *) x->data;
     float *       y  = (float *) dst->data;
 
-    cudaStream_t stream = ctx.stream();
+    cudaStream_t stream    = ctx.stream();
+    cublasHandle_t handle = ctx.cublas_handle();
+    const float    alpha  = 1.0f;
+    const float    beta   = 0.0f;
+    const int      tpb    = 256;
 
-    const int tpb = 256;
-    const int blocks_y = (int) ((D + tpb - 1) / tpb);
-    k_bdh_syn_head_y<<<blocks_y, tpb, 0, stream>>>(g, q, y, N, D, sg0, sgb);
+    if (sg0 == 1 && sgb == N && N <= INT_MAX && D <= INT_MAX) {
+        // Contiguous [N,D] row-major: y = Gᵀ·qr via cublas (op T).
+        CUBLAS_CHECK(cublasSgemv(handle, CUBLAS_OP_T, (int) N, (int) D, &alpha, g, (int) N, q, 1, &beta, y, 1));
+    } else {
+        const int blocks_y = (int) ((D + tpb - 1) / tpb);
+        k_bdh_syn_head_y<<<blocks_y, tpb, 0, stream>>>(g, q, y, N, D, sg0, sgb);
+    }
 
     float * g_mut = (float *) g;
     const int64_t total = N * D;
