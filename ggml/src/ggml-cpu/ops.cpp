@@ -11954,6 +11954,55 @@ void ggml_compute_forward_map_custom1(
     p.fun(dst, a, params->ith, params->nth, p.userdata);
 }
 
+// ggml_compute_forward_bdh_syn_head
+
+static void ggml_compute_forward_bdh_syn_head_f32(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    GGML_UNUSED(params);
+
+    const ggml_tensor * grid = dst->src[0];
+    const ggml_tensor * qr   = dst->src[1];
+    const ggml_tensor * x    = dst->src[2];
+
+    const int64_t N = grid->ne[0];
+    const int64_t D = grid->ne[1];
+    const int64_t sgb = grid->nb[1] / (int64_t) sizeof(float);
+    const int64_t sg0 = grid->nb[0] / (int64_t) sizeof(float);
+
+    float *       g  = (float *) grid->data;
+    const float * q  = (const float *) qr->data;
+    const float * xv = (const float *) x->data;
+    float *       y  = (float *) dst->data;
+
+    for (int64_t d = 0; d < D; ++d) {
+        float acc = 0.0f;
+        for (int64_t n = 0; n < N; ++n) {
+            acc += g[n * sg0 + d * sgb] * q[n];
+        }
+        y[d] = acc;
+    }
+
+    for (int64_t n = 0; n < N; ++n) {
+        const float qn = q[n];
+        for (int64_t d = 0; d < D; ++d) {
+            g[n * sg0 + d * sgb] += qn * xv[d];
+        }
+    }
+}
+
+void ggml_compute_forward_bdh_syn_head(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    switch (dst->type) {
+        case GGML_TYPE_F32:
+            ggml_compute_forward_bdh_syn_head_f32(params, dst);
+            break;
+        default:
+            GGML_ABORT("fatal error");
+    }
+}
+
 // ggml_compute_forward_map_custom2
 
 void ggml_compute_forward_map_custom2(

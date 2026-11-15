@@ -606,6 +606,8 @@ extern "C" {
 
         GGML_OP_GLU,
 
+        GGML_OP_BDH_SYN_HEAD,
+
         GGML_OP_COUNT,
     };
 
@@ -1532,6 +1534,13 @@ extern "C" {
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
             struct ggml_tensor  * b);
+
+    // BDH synaptic head (T=1): y = gridᵀ·qr; grid += qr ⊗ x (in-place on grid).
+    GGML_API struct ggml_tensor * ggml_bdh_syn_head(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * grid,
+            struct ggml_tensor  * qr,
+            struct ggml_tensor  * x);
 
     //
     // operations on tensors without backpropagation

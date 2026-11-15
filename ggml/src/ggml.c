@@ -1116,9 +1116,10 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_SGD",
 
     "GLU",
+    "BDH_SYN_HEAD",
 };
 
-static_assert(GGML_OP_COUNT == 102, "GGML_OP_COUNT != 102");
+static_assert(GGML_OP_COUNT == 103, "GGML_OP_COUNT != 103");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1232,9 +1233,10 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "sgd(x)",
 
     "glu(x)",
+    "bdh_syn_head(grid,qr,x)",
 };
 
-static_assert(GGML_OP_COUNT == 102, "GGML_OP_COUNT != 102");
+static_assert(GGML_OP_COUNT == 103, "GGML_OP_COUNT != 103");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -3500,6 +3502,30 @@ struct ggml_tensor * ggml_out_prod(
     result->op     = GGML_OP_OUT_PROD;
     result->src[0] = a;
     result->src[1] = b;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_bdh_syn_head(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * grid,
+        struct ggml_tensor  * qr,
+        struct ggml_tensor  * x) {
+    GGML_ASSERT(grid->type == GGML_TYPE_F32);
+    GGML_ASSERT(qr->type == GGML_TYPE_F32);
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(grid->ne[0] == qr->ne[0]);
+    GGML_ASSERT(qr->ne[1] == 1);
+    GGML_ASSERT(x->ne[1] == 1);
+    GGML_ASSERT(x->ne[0] == grid->ne[1]);
+
+    const int64_t ne[4] = { x->ne[0], 1, 1, 1 };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 2, ne);
+
+    result->op     = GGML_OP_BDH_SYN_HEAD;
+    result->src[0] = grid;
+    result->src[1] = qr;
+    result->src[2] = x;
 
     return result;
 }

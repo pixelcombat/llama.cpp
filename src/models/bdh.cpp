@@ -208,8 +208,12 @@ static ggml_tensor * bdh_attn_head(
 static ggml_tensor * bdh_grid_outer_delta(
         ggml_context * ctx,
         ggml_tensor *  qr,
-        ggml_tensor *  x) {
+        ggml_tensor *  x,
+        bool           fast_single = false) {
     // stamped (N,1) ⊗ x (D,) → (N,D) — jak streaming.py: unsqueeze(-1) * x
+    if (fast_single) {
+        return ggml_out_prod(ctx, qr, x);
+    }
     const int64_t N = qr->ne[0];
     const int64_t D = x->ne[0];
     ggml_tensor * qr_w  = ggml_cont(ctx, ggml_repeat_4d(ctx, qr, N, D, 1, 1));
@@ -224,7 +228,7 @@ static ggml_tensor * bdh_grid_head_write_nd(
         ggml_tensor *  qr,
         ggml_tensor *  x,
         bool           fast_single = false) {
-    ggml_tensor * delta = bdh_grid_outer_delta(ctx, qr, x);
+    ggml_tensor * delta = bdh_grid_outer_delta(ctx, qr, x, fast_single);
     ggml_tensor * sum   = ggml_add(ctx, grid_nd, delta);
     return fast_single ? sum : ggml_cont(ctx, sum);
 }
@@ -293,6 +297,8 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
     const bool rs_fast  = syn_step && n_seqs == 1 && mctx_recr->get_n_rs() == (uint32_t) n_seqs &&
                           (!std::getenv("BDH_RS_DIRECT") || std::strcmp(std::getenv("BDH_RS_DIRECT"), "0") != 0);
+    const char *  syn_fused_env = std::getenv("BDH_SYN_FUSED");
+    const bool    syn_fused = syn_step && rs_fast && rope_fast && syn_fused_env && std::strcmp(syn_fused_env, "1") == 0;
     if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
@@ -320,7 +326,8 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     bdh_debug_select(cur, "ln_embed");
     GGML_ASSERT(cur->ne[1] == n_tokens);
 
-    ggml_tensor * freqs = ggml_reshape_2d(ctx0, ggml_cont(ctx0, m.bdh_attn_freqs), N, 1);
+    ggml_tensor * freqs = rope_fast ? ggml_reshape_2d(ctx0, m.bdh_attn_freqs, N, 1)
+                                  : ggml_reshape_2d(ctx0, ggml_cont(ctx0, m.bdh_attn_freqs), N, 1);
 
     ggml_tensor * ph_cos = nullptr;
     ggml_tensor * ph_sin = nullptr;
@@ -365,16 +372,19 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 // Stan głowy (N,D) — zgodnie z streaming.py grids[layer,h]
                 ggml_tensor * grid_h = ggml_view_2d(
                     ctx0, grid_s, N, D, N * (int64_t) sizeof(float), (size_t) h * head_grid_bytes);
-                ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
-                y_h                  = rope_fast ? ggml_mul_mat(ctx0, grid_h, qr)
-                                                 : ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
-                ggml_tensor * grid_w =
-                    bdh_grid_head_write_nd(ctx0, grid_h, qr, rope_fast ? ggml_cont(ctx0, x) : x, rope_fast);
-                grid_w               = ggml_add(ctx0, grid_w, ggml_scale(ctx0, y_h, 0.0f));
-                if (rs_fast) {
-                    grid_pending_cpy.emplace_back(grid_w, grid_h);
+                ggml_tensor * qr = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
+                if (syn_fused) {
+                    y_h = ggml_bdh_syn_head(ctx0, grid_h, qr, x);
                 } else {
-                    grid_out_heads.push_back(grid_w);
+                    y_h = rope_fast ? ggml_mul_mat(ctx0, grid_h, qr)
+                                    : ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
+                    ggml_tensor * grid_w = bdh_grid_head_write_nd(ctx0, grid_h, qr, x, rope_fast);
+                    grid_w               = ggml_add(ctx0, grid_w, ggml_scale(ctx0, y_h, 0.0f));
+                    if (rs_fast) {
+                        grid_pending_cpy.emplace_back(grid_w, grid_h);
+                    } else {
+                        grid_out_heads.push_back(grid_w);
+                    }
                 }
             } else {
                 y_h = bdh_attn_head(ctx0, ph_cos, ph_sin, qk, x, n_tokens, (int) h);
