@@ -11959,8 +11959,6 @@ void ggml_compute_forward_map_custom1(
 static void ggml_compute_forward_bdh_syn_head_f32(
         const ggml_compute_params * params,
               ggml_tensor * dst) {
-    GGML_UNUSED(params);
-
     const ggml_tensor * grid = dst->src[0];
     const ggml_tensor * qr   = dst->src[1];
     const ggml_tensor * x    = dst->src[2];
@@ -11975,7 +11973,13 @@ static void ggml_compute_forward_bdh_syn_head_f32(
     const float * xv = (const float *) x->data;
     float *       y  = (float *) dst->data;
 
-    for (int64_t d = 0; d < D; ++d) {
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const int64_t dr = (D + nth - 1) / nth;
+    const int64_t d0 = dr * (int64_t) ith;
+    const int64_t d1 = MIN(d0 + dr, D);
+    for (int64_t d = d0; d < d1; ++d) {
         float acc = 0.0f;
         for (int64_t n = 0; n < N; ++n) {
             acc += g[n * sg0 + d * sgb] * q[n];
@@ -11983,11 +11987,17 @@ static void ggml_compute_forward_bdh_syn_head_f32(
         y[d] = acc;
     }
 
-    for (int64_t n = 0; n < N; ++n) {
-        const float qn = q[n];
-        for (int64_t d = 0; d < D; ++d) {
-            g[n * sg0 + d * sgb] += qn * xv[d];
-        }
+    ggml_barrier(params->threadpool);
+
+    const int64_t total = N * D;
+    const int64_t ur    = (total + nth - 1) / nth;
+    const int64_t u0    = ur * (int64_t) ith;
+    const int64_t u1    = MIN(u0 + ur, total);
+    for (int64_t idx = u0; idx < u1; ++idx) {
+        const int64_t n  = idx % N;
+        const int64_t d  = idx / N;
+        const float   qn = q[n];
+        g[n * sg0 + d * sgb] += qn * xv[d];
     }
 }
 

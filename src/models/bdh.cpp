@@ -297,8 +297,9 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
     const bool rs_fast  = syn_step && n_seqs == 1 && mctx_recr->get_n_rs() == (uint32_t) n_seqs &&
                           (!std::getenv("BDH_RS_DIRECT") || std::strcmp(std::getenv("BDH_RS_DIRECT"), "0") != 0);
-    const char *  syn_fused_env = std::getenv("BDH_SYN_FUSED");
-    const bool    syn_fused = syn_step && rs_fast && rope_fast && syn_fused_env && std::strcmp(syn_fused_env, "1") == 0;
+    const char * syn_fused_env = std::getenv("BDH_SYN_FUSED");
+    const bool   syn_fused_off = syn_fused_env && std::strcmp(syn_fused_env, "0") == 0;
+    const bool   syn_fused     = syn_step && rs_fast && rope_fast && !syn_fused_off;
     if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
