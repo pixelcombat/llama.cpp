@@ -1120,9 +1120,10 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "BDH_GATED_DECODER",
     "BDH_ENC_X_RELU",
     "BDH_ENC_V_RELU",
+    "BDH_LM_HEAD",
 };
 
-static_assert(GGML_OP_COUNT == 106, "GGML_OP_COUNT != 106");
+static_assert(GGML_OP_COUNT == 107, "GGML_OP_COUNT != 107");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1240,9 +1241,10 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "bdh_gated_decoder(dec,xsp,ysp)",
     "bdh_enc_x_relu(w,x)",
     "bdh_enc_v_relu(w,y)",
+    "bdh_lm_head(w,x)",
 };
 
-static_assert(GGML_OP_COUNT == 106, "GGML_OP_COUNT != 106");
+static_assert(GGML_OP_COUNT == 107, "GGML_OP_COUNT != 107");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -3594,6 +3596,25 @@ struct ggml_tensor * ggml_bdh_enc_v_relu(
     result->op     = GGML_OP_BDH_ENC_V_RELU;
     result->src[0] = w;
     result->src[1] = y_kv;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_bdh_lm_head(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * output,
+        struct ggml_tensor  * x) {
+    GGML_ASSERT(output->type == GGML_TYPE_F32);
+    GGML_ASSERT(x->type == GGML_TYPE_F32);
+    GGML_ASSERT(output->ne[0] == x->ne[0]);
+    GGML_ASSERT(x->ne[1] == 1);
+
+    const int64_t ne[4] = { output->ne[1], 1, 1, 1 };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 2, ne);
+
+    result->op     = GGML_OP_BDH_LM_HEAD;
+    result->src[0] = output;
+    result->src[1] = x;
 
     return result;
 }

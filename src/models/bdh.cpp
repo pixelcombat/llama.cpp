@@ -311,6 +311,9 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     const char * enc_fused_env = std::getenv("BDH_ENC_FUSED");
     const bool   enc_fused_off = enc_fused_env && std::strcmp(enc_fused_env, "0") == 0;
     const bool   enc_fused     = rope_fast && !sparse_nt_path && !enc_fused_off;
+    const char * out_fused_env = std::getenv("BDH_OUT_FUSED");
+    const bool   out_fused_off = out_fused_env && std::strcmp(out_fused_env, "0") == 0;
+    const bool   out_fused     = rope_fast && n_tokens == 1 && !out_fused_off;
     if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
@@ -495,7 +498,14 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     cb(cur, "result_embd", -1);
     res->t_embd = cur;
 
-    cur = build_lora_mm(model.output, cur, model.output_s);
+    const bool no_lora      = loras == nullptr || loras->empty();
+    const bool out_mm_fused = out_fused && model.output_s == nullptr && no_lora &&
+                              model.output->type == GGML_TYPE_F32;
+    if (out_mm_fused) {
+        cur = ggml_bdh_lm_head(ctx0, model.output, cur);
+    } else {
+        cur = build_lora_mm(model.output, cur, model.output_s);
+    }
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 

@@ -11990,6 +11990,21 @@ static void ggml_compute_forward_bdh_syn_head_f32(
     const int64_t d0 = dr * (int64_t) ith;
     const int64_t d1 = MIN(d0 + dr, D);
     const bool grid_col_major = sg0 == 1 && sgb == N;
+#if defined(GGML_CPU_USE_OPENBLAS)
+    const bool syn_blas = grid_col_major && N <= INT_MAX && D <= INT_MAX;
+    if (syn_blas && ith == 0) {
+        openblas_set_num_threads(nth);
+        cblas_sgemv(CblasColMajor, CblasTrans, (int) N, (int) D, 1.0f, g, (int) N, q, 1, 0.0f, y, 1);
+    }
+    if (syn_blas) {
+        ggml_barrier(params->threadpool);
+        for (int64_t d = d0; d < d1; ++d) {
+            float * row = g + d * (size_t) N;
+            ggml_vec_mad_f32((int) N, row, q, xv[d]);
+        }
+        return;
+    }
+#endif
     /* Fused per-d GEMV + rank-1 grid update (no barrier; rows disjoint across d). */
     for (int64_t d = d0; d < d1; ++d) {
         float acc = 0.0f;
@@ -12198,6 +12213,67 @@ void ggml_compute_forward_bdh_enc_v_relu(
     switch (dst->type) {
         case GGML_TYPE_F32:
             ggml_compute_forward_bdh_enc_v_relu_f32(params, dst);
+            break;
+        default:
+            GGML_ABORT("fatal error");
+    }
+}
+
+// ggml_compute_forward_bdh_lm_head
+
+static void ggml_compute_forward_bdh_lm_head_f32(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    const ggml_tensor * output = dst->src[0];
+    const ggml_tensor * x      = dst->src[1];
+
+    const int64_t D = output->ne[0];
+    const int64_t V = output->ne[1];
+    const size_t  sw0 = output->nb[0] / sizeof(float);
+    const size_t  sw1 = output->nb[1] / sizeof(float);
+
+    const float * W = (const float *) output->data;
+    const float * xv = (const float *) x->data;
+    float *       y  = (float *) dst->data;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const bool w_col = sw0 == 1 && sw1 == (size_t) D;
+
+#if defined(GGML_CPU_USE_OPENBLAS)
+    if (w_col && ith == 0 && D <= INT_MAX && V <= INT_MAX) {
+        openblas_set_num_threads(nth);
+        cblas_sgemv(CblasColMajor, CblasTrans, (int) D, (int) V, 1.0f, W, (int) D, xv, 1, 0.0f, y, 1);
+        return;
+    }
+    if (w_col) {
+        return;
+    }
+#endif
+
+    const int64_t vr = (V + nth - 1) / nth;
+    const int64_t v0 = vr * (int64_t) ith;
+    const int64_t v1 = MIN(v0 + vr, V);
+    for (int64_t v = v0; v < v1; ++v) {
+        float acc = 0.0f;
+        if (w_col) {
+            ggml_vec_dot_f32((int) D, &acc, 0, W + v * (size_t) D, 1, xv, 1, 1);
+        } else {
+            for (int64_t d = 0; d < D; ++d) {
+                acc += W[d * sw0 + v * sw1] * xv[d];
+            }
+        }
+        y[v] = acc;
+    }
+}
+
+void ggml_compute_forward_bdh_lm_head(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    switch (dst->type) {
+        case GGML_TYPE_F32:
+            ggml_compute_forward_bdh_lm_head_f32(params, dst);
             break;
         default:
             GGML_ABORT("fatal error");

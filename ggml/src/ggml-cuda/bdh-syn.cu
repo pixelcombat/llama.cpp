@@ -220,3 +220,29 @@ void ggml_cuda_bdh_enc_v_relu(ggml_backend_cuda_context & ctx, ggml_tensor * dst
         GGML_ABORT("ggml_cuda_bdh_enc_v_relu: non-contiguous weights");
     }
 }
+
+void ggml_cuda_bdh_lm_head(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+    const ggml_tensor * output = dst->src[0];
+    const ggml_tensor * x      = dst->src[1];
+
+    GGML_ASSERT(output->type == GGML_TYPE_F32 && x->type == GGML_TYPE_F32);
+
+    const int64_t D   = output->ne[0];
+    const int64_t V   = output->ne[1];
+    const int64_t sw0 = output->nb[0] / (int64_t) sizeof(float);
+    const int64_t sw1 = output->nb[1] / (int64_t) sizeof(float);
+
+    const float * W  = (const float *) output->data;
+    const float * xv = (const float *) x->data;
+    float *       y  = (float *) dst->data;
+
+    cublasHandle_t handle = ctx.cublas_handle();
+    const float    alpha  = 1.0f;
+    const float    beta   = 0.0f;
+
+    if (sw0 == 1 && sw1 == D && D <= INT_MAX && V <= INT_MAX) {
+        CUBLAS_CHECK(cublasSgemv(handle, CUBLAS_OP_T, (int) D, (int) V, &alpha, W, (int) D, xv, 1, &beta, y, 1));
+    } else {
+        GGML_ABORT("ggml_cuda_bdh_lm_head: non-contiguous weights");
+    }
+}

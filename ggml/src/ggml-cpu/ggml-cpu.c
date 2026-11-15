@@ -1903,6 +1903,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 ggml_compute_forward_bdh_enc_v_relu(params, tensor);
             } break;
+        case GGML_OP_BDH_LM_HEAD:
+            {
+                ggml_compute_forward_bdh_lm_head(params, tensor);
+            } break;
         case GGML_OP_SCALE:
             {
                 ggml_compute_forward_scale(params, tensor);
@@ -2398,6 +2402,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_BDH_GATED_DECODER:
         case GGML_OP_BDH_ENC_X_RELU:
         case GGML_OP_BDH_ENC_V_RELU:
+        case GGML_OP_BDH_LM_HEAD:
         case GGML_OP_SET_ROWS:
             {
                 n_tasks = n_threads;

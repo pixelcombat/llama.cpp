@@ -610,6 +610,7 @@ extern "C" {
         GGML_OP_BDH_GATED_DECODER,
         GGML_OP_BDH_ENC_X_RELU,
         GGML_OP_BDH_ENC_V_RELU,
+        GGML_OP_BDH_LM_HEAD,
 
         GGML_OP_COUNT,
     };
@@ -1561,6 +1562,12 @@ extern "C" {
             struct ggml_context * ctx,
             struct ggml_tensor  * w,
             struct ggml_tensor  * y_kv);
+
+    // BDH decode (T=1): logits = outputᵀ · x (lm_head), same layout as ggml_mul_mat(output, x).
+    GGML_API struct ggml_tensor * ggml_bdh_lm_head(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * output,
+            struct ggml_tensor  * x);
 
     //
     // operations on tensors without backpropagation
