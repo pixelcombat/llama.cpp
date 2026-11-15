@@ -2469,6 +2469,27 @@ struct llama_model_lfm2moe : public llama_model_base {
 };
 
 
+struct llama_model_bdh : public llama_model_base {
+    llama_model_bdh(const struct llama_model_params & params) : llama_model_base(params) {}
+
+    struct ggml_tensor * bdh_encoder    = nullptr;
+    struct ggml_tensor * bdh_encoder_v  = nullptr;
+    struct ggml_tensor * bdh_decoder    = nullptr;
+    struct ggml_tensor * bdh_attn_freqs = nullptr;
+
+    int32_t bdh_sparse_dim_multiplier = 128;
+
+    void load_arch_hparams(llama_model_loader & ml) override;
+    void load_arch_tensors(llama_model_loader & ml) override;
+
+    struct graph : public llm_graph_context {
+        graph(const llama_model & model, const llm_graph_params & params);
+    };
+
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
+};
+
+
 struct llama_model_lfm3 : public llama_model_base {
     llama_model_lfm3(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;

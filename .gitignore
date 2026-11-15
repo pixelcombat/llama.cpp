@@ -4,3 +4,7 @@
 src/models/bdh.cpp.bak*
 src/llama-*.cpp.bak*
 src/llama-*.h.bak*
+build/
+build-bdh/
+build-bdh-cuda/
+build-bdh-cpu/

@@ -318,6 +318,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_lfm2moe(params);
         case LLM_ARCH_LFM3:
             return new llama_model_lfm3(params);
+        case LLM_ARCH_BDH:
+            return new llama_model_bdh(params);
         case LLM_ARCH_SMALLTHINKER:
             return new llama_model_smallthinker(params);
         case LLM_ARCH_GROVEMOE:

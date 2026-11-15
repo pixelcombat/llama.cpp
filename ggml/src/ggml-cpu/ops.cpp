@@ -11979,10 +11979,15 @@ static void ggml_compute_forward_bdh_syn_head_f32(
     const int64_t dr = (D + nth - 1) / nth;
     const int64_t d0 = dr * (int64_t) ith;
     const int64_t d1 = MIN(d0 + dr, D);
+    const bool grid_col_major = sg0 == 1 && sgb == N;
     for (int64_t d = d0; d < d1; ++d) {
         float acc = 0.0f;
-        for (int64_t n = 0; n < N; ++n) {
-            acc += g[n * sg0 + d * sgb] * q[n];
+        if (grid_col_major) {
+            ggml_vec_dot_f32(N, &acc, 0, g + d * (size_t) N, 1, q, 1, 1);
+        } else {
+            for (int64_t n = 0; n < N; ++n) {
+                acc += g[n * sg0 + d * sgb] * q[n];
+            }
         }
         y[d] = acc;
     }
