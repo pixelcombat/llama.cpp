@@ -42,9 +42,9 @@ static ggml_tensor * stack_heads_dim2(
         int64_t                           ne1) {
     GGML_ASSERT(!heads.empty());
 
-    ggml_tensor * out = ggml_reshape_3d(ctx, ggml_dup(ctx, ggml_cont(ctx, heads[0])), ne0, ne1, 1);
+    ggml_tensor * out = ggml_reshape_3d(ctx, heads[0], ne0, ne1, 1);
     for (size_t i = 1; i < heads.size(); ++i) {
-        ggml_tensor * h = ggml_reshape_3d(ctx, ggml_dup(ctx, ggml_cont(ctx, heads[i])), ne0, ne1, 1);
+        ggml_tensor * h = ggml_reshape_3d(ctx, heads[i], ne0, ne1, 1);
         out             = ggml_concat(ctx, out, h, 2);
     }
     return out;
