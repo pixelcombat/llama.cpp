@@ -6,12 +6,14 @@
 
 #include <cpp-httplib/httplib.h>
 
+#include <fstream>
 #include <functional>
 #include <future>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
-#include <mutex>
 
 //
 // HTTP implementation using cpp-httplib
@@ -358,6 +360,27 @@ bool server_http_context::init_listener(const common_params & params) {
         if (!middleware_validate_api_key(req, res)) {
             return httplib::Server::HandlerResponse::Handled;
         }
+
+        // --path UI: beat static mount for index (Clear-Site-Data clears stale PWA/SW on phones).
+        if (params.ui && !params.public_path.empty() && req.method == "GET") {
+            const std::string & pfx = params.api_prefix;
+            const std::string   pub = params.public_path;
+            const auto is_index = [&]() {
+                return req.path == "/" || req.path == "/index.html" || req.path == pfx + "/" ||
+                       req.path == pfx + "/index.html";
+            };
+            if (is_index()) {
+                std::ifstream in(pub + "/index.html", std::ios::binary);
+                if (in) {
+                    std::ostringstream ss;
+                    ss << in.rdbuf();
+                    res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                    res.set_content(ss.str(), "text/html; charset=utf-8");
+                    return httplib::Server::HandlerResponse::Handled;
+                }
+            }
+        }
+
         return httplib::Server::HandlerResponse::Unhandled;
     });
 
@@ -376,6 +399,40 @@ bool server_http_context::init_listener(const common_params & params) {
     } else {
         // register static assets routes
         if (!params.public_path.empty()) {
+            const std::string pub = params.public_path;
+
+            // Must register before set_mount_point — mount would otherwise serve workbox sw.js and stale PWA caches.
+            auto serve_sw_unregister = [](const httplib::Request &, httplib::Response & res) {
+                static constexpr const char * sw_remove_js = R"(
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+    await self.registration.unregister();
+    for (const key of await caches.keys()) await caches.delete(key);
+    for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);
+})()));
+)";
+                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
+                res.set_content(sw_remove_js, "application/javascript");
+            };
+
+            auto serve_index_clear = [pub](const httplib::Request &, httplib::Response & res) {
+                const std::string path = pub + "/index.html";
+                std::ifstream       in(path, std::ios::binary);
+                if (!in) {
+                    res.status = 404;
+                    return;
+                }
+                std::ostringstream ss;
+                ss << in.rdbuf();
+                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.set_content(ss.str(), "text/html; charset=utf-8");
+            };
+
+            srv->Get(params.api_prefix + "/sw.js",           serve_sw_unregister);
+            srv->Get(params.api_prefix + "/",                serve_index_clear);
+            srv->Get(params.api_prefix + "/index.html",      serve_index_clear);
+
             // Set the base directory for serving static files
             if (const auto is_found = srv->set_mount_point(params.api_prefix + "/", params.public_path); !is_found) {
                 SRV_ERR("static assets path not found: %s\n", params.public_path.c_str());
@@ -473,8 +530,8 @@ bool server_http_context::init_listener(const common_params & params) {
     }
 
     // a browser that used the built-in UI keeps its service worker, so it shows the old UI even after the UI is replaced or disabled
-    // answer the worker's update check with a worker that removes itself; a sw.js in public_path is served first
-    if (!params.ui || !params.public_path.empty()) {
+    // answer the worker's update check with a worker that removes itself (embedded gzip UI only; --path registers above)
+    if (!params.ui) {
         srv->Get(params.api_prefix + "/sw.js", [](const httplib::Request &, httplib::Response & res) {
             static constexpr const char * sw_remove_js = R"(
 self.addEventListener('install', () => self.skipWaiting());
