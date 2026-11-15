@@ -72,8 +72,11 @@ static void bdh_rope_phases(
         int64_t        n_tokens,
         ggml_tensor ** ph_cos,
         ggml_tensor ** ph_sin) {
-  const bool fast_single = n_tokens == 1;
-    ggml_tensor * pos_row  = ggml_cont(ctx, ggml_reshape_2d(ctx, ggml_cast(ctx, inp_pos, GGML_TYPE_F32), 1, n_tokens));
+    const bool fast_single = n_tokens == 1;
+    ggml_tensor * pos_f32  = ggml_cast(ctx, inp_pos, GGML_TYPE_F32);
+    ggml_tensor * pos_row  = fast_single
+        ? ggml_reshape_2d(ctx, pos_f32, 1, n_tokens)
+        : ggml_cont(ctx, ggml_reshape_2d(ctx, pos_f32, 1, n_tokens));
     ggml_tensor * freq_col = fast_single ? ggml_reshape_2d(ctx, freqs, N, 1)
                                          : ggml_cont(ctx, ggml_reshape_2d(ctx, freqs, N, 1));
     ggml_tensor * phases   = ggml_mul(ctx,

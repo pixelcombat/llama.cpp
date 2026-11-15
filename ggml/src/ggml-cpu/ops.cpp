@@ -11980,29 +11980,24 @@ static void ggml_compute_forward_bdh_syn_head_f32(
     const int64_t d0 = dr * (int64_t) ith;
     const int64_t d1 = MIN(d0 + dr, D);
     const bool grid_col_major = sg0 == 1 && sgb == N;
+    /* Fused per-d GEMV + rank-1 grid update (no barrier; rows disjoint across d). */
     for (int64_t d = d0; d < d1; ++d) {
         float acc = 0.0f;
         if (grid_col_major) {
-            ggml_vec_dot_f32(N, &acc, 0, g + d * (size_t) N, 1, q, 1, 1);
+            float * row = g + d * (size_t) N;
+            ggml_vec_dot_f32(N, &acc, 0, row, 1, q, 1, 1);
+            y[d] = acc;
+            ggml_vec_mad_f32((int) N, row, q, xv[d]);
         } else {
             for (int64_t n = 0; n < N; ++n) {
                 acc += g[n * sg0 + d * sgb] * q[n];
             }
+            y[d] = acc;
+            const float xd = xv[d];
+            for (int64_t n = 0; n < N; ++n) {
+                g[n * sg0 + d * sgb] += q[n] * xd;
+            }
         }
-        y[d] = acc;
-    }
-
-    ggml_barrier(params->threadpool);
-
-    const int64_t total = N * D;
-    const int64_t ur    = (total + nth - 1) / nth;
-    const int64_t u0    = ur * (int64_t) ith;
-    const int64_t u1    = MIN(u0 + ur, total);
-    for (int64_t idx = u0; idx < u1; ++idx) {
-        const int64_t n  = idx % N;
-        const int64_t d  = idx / N;
-        const float   qn = q[n];
-        g[n * sg0 + d * sgb] += qn * xv[d];
     }
 }
 
