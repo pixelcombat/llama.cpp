@@ -380,7 +380,7 @@ bool server_http_context::init_listener(const common_params & params) {
                 return req.path == "/sw.js" || req.path == pfx + "/sw.js";
             };
             if (is_sw()) {
-                res.set_header("Cache-Control", "no-store");
+                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
                 res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
                 res.set_content(bdh_sw_unregister_js, "application/javascript");
                 return httplib::Server::HandlerResponse::Handled;
@@ -394,7 +394,8 @@ bool server_http_context::init_listener(const common_params & params) {
                 if (in) {
                     std::ostringstream ss;
                     ss << in.rdbuf();
-                    res.set_header("Cache-Control", "no-store");
+                    res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                    res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
                     res.set_content(ss.str(), "text/html; charset=utf-8");
                     return httplib::Server::HandlerResponse::Handled;
                 }
@@ -423,7 +424,7 @@ bool server_http_context::init_listener(const common_params & params) {
 
             // Must register before set_mount_point — mount would otherwise serve workbox sw.js and stale PWA caches.
             auto serve_sw_unregister = [](const httplib::Request &, httplib::Response & res) {
-                res.set_header("Cache-Control", "no-store");
+                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
                 res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
                 res.set_content(bdh_sw_unregister_js, "application/javascript");
             };
@@ -437,7 +438,8 @@ bool server_http_context::init_listener(const common_params & params) {
                 }
                 std::ostringstream ss;
                 ss << in.rdbuf();
-                res.set_header("Cache-Control", "no-store");
+                res.set_header("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.set_header("Clear-Site-Data", "\"cacheStorage\", \"storage\"");
                 res.set_content(ss.str(), "text/html; charset=utf-8");
             };
 

@@ -300,6 +300,8 @@ export const SPLASH_LINK = {
 import type { SvelteKitPWAOptions } from '@vite-pwa/sveltekit';
 
 export const SVELTEKIT_PWA_OPTIONS: SvelteKitPWAOptions = {
+	// BDH serves unregister SW from llama-server; skip auto-inject on HTTP/Tailscale.
+	injectRegister: false,
 	devOptions: {
 		enabled: true,
 		suppressWarnings: true

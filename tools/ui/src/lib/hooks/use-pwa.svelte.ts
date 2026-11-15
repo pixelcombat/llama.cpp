@@ -3,6 +3,9 @@ import { BUILD_VERSION_LOCALSTORAGE_KEY, SW_CONFIG } from '$lib/constants';
 import { versionStore } from '$lib/stores';
 import { useRegisterSW } from 'virtual:pwa-register/svelte';
 
+const serviceWorkerSupported = () =>
+	browser && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && window.isSecureContext;
+
 /**
  * Hook for PWA service worker registration, update polling, and build version mismatch detection.
  *
@@ -19,6 +22,7 @@ export function usePwa() {
 		needRefresh: pwaNeedRefresh,
 		updateServiceWorker
 	} = useRegisterSW({
+		immediate: serviceWorkerSupported(),
 		onRegisteredSW(swUrl: string, r: ServiceWorkerRegistration | undefined) {
 			if (swCheckInterval) {
 				clearInterval(swCheckInterval);
