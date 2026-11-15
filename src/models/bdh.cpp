@@ -161,9 +161,11 @@ static ggml_tensor * bdh_sparse_3d_nt(
         ggml_tensor *  fused,
         int64_t        N,
         int64_t        nh,
-        int64_t        n_tokens) {
+        int64_t        n_tokens,
+        bool           fast_single = false) {
     ggml_tensor * t = ggml_reshape_3d(ctx, fused, N, nh, n_tokens);
-    return ggml_cont(ctx, ggml_permute(ctx, t, 0, 2, 1, 3));
+    ggml_tensor * p = ggml_permute(ctx, t, 0, 2, 1, 3);
+    return fast_single ? p : ggml_cont(ctx, p);
 }
 
 static ggml_tensor * bdh_head_from_fused(ggml_context * ctx, ggml_tensor * fused, int64_t h, int64_t N) {
@@ -325,13 +327,13 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     ggml_tensor * w_enc   = bdh_encoder_weights_2d(ctx0, m.bdh_encoder, nh, N, D);
     ggml_tensor * w_enc_v = ggml_cont(ctx0, ggml_permute(ctx0, m.bdh_encoder_v, 1, 0, 2, 3));
 
-    std::vector<std::pair<ggml_tensor *, ggml_tensor *>> grid_pending_cpy;
+    std::vector<ggml_tensor *> grid_write_heads;
 
     for (int il = 0; il < n_layer; ++il) {
-        ggml_tensor * x = ggml_cont(ctx0, cur);
+        ggml_tensor * x = rope_fast ? cur : ggml_cont(ctx0, cur);
 
         ggml_tensor * xsp                         = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc, x));
-        ggml_tensor * x_sparse                    = bdh_sparse_3d_nt(ctx0, xsp, N, nh, n_tokens);
+        ggml_tensor * x_sparse                    = bdh_sparse_3d_nt(ctx0, xsp, N, nh, n_tokens, rope_fast);
         cb(x_sparse, "model.layers.x_sparse", il);
         bdh_debug_select_il(x_sparse, "x_sparse", il);
         if (!bdh_debug_tag()) {
@@ -361,11 +363,12 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 ggml_tensor * grid_h = ggml_view_2d(
                     ctx0, grid_s, N, D, N * (int64_t) sizeof(float), (size_t) h * head_grid_bytes);
                 ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
-                y_h                  = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
+                y_h                  = rope_fast ? ggml_mul_mat(ctx0, grid_h, qr)
+                                                 : ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
                 ggml_tensor * grid_w = bdh_grid_head_write_nd(ctx0, grid_h, qr, x);
                 grid_w               = ggml_add(ctx0, grid_w, ggml_scale(ctx0, y_h, 0.0f));
                 if (rs_fast) {
-                    grid_pending_cpy.emplace_back(grid_w, grid_h);
+                    grid_write_heads.push_back(grid_w);
                 } else {
                     grid_out_heads.push_back(grid_w);
                 }
@@ -403,12 +406,14 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
 
         ggml_tensor * ysp_nt  = ggml_relu(ctx0, ggml_mul_mat(ctx0, w_enc_v, y_kv));
         ggml_tensor * ysp_nht = ggml_permute(ctx0, ysp_nt, 0, 2, 1, 3);
-        ggml_tensor * ysp     = ggml_reshape_2d(ctx0, ggml_cont(ctx0, ysp_nht), nh * N, n_tokens);
-        ggml_tensor * y_sparse  = bdh_sparse_3d_nt(ctx0, ysp, N, nh, n_tokens);
+        ggml_tensor * ysp     = rope_fast ? ggml_reshape_2d(ctx0, ysp_nht, nh * N, n_tokens)
+                                        : ggml_reshape_2d(ctx0, ggml_cont(ctx0, ysp_nht), nh * N, n_tokens);
+        ggml_tensor * y_sparse  = bdh_sparse_3d_nt(ctx0, ysp, N, nh, n_tokens, rope_fast);
         bdh_debug_select_il(y_sparse, "y_sparse", il);
         ggml_tensor * gated_ntn = ggml_mul(ctx0, x_sparse, y_sparse);
         bdh_debug_select_il(gated_ntn, "gated_ntn", il);
-        ggml_tensor * gated_dec = ggml_cont(ctx0, ggml_mul(ctx0, xsp, ysp));
+        ggml_tensor * gated_dec = rope_fast ? ggml_mul(ctx0, xsp, ysp)
+                                            : ggml_cont(ctx0, ggml_mul(ctx0, xsp, ysp));
         bdh_debug_select_il(gated_dec, "gated_dec", il);
         ggml_tensor * y_mlp = build_lora_mm(m.bdh_decoder, gated_dec, nullptr);
         cb(y_mlp, "model.layers.y_mlp", il);
@@ -418,12 +423,12 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         cur   = build_norm(ggml_add(ctx0, x, y_mlp), nullptr, nullptr, LLM_NORM, il);
         bdh_debug_select_il(cur, "l_out", il);
 
-        if (rs_fast && !grid_pending_cpy.empty()) {
-            for (const auto & wh : grid_pending_cpy) {
-                ggml_tensor * w_dep = ggml_add(ctx0, wh.first, ggml_scale(ctx0, cur, 0.0f));
-                ggml_build_forward_expand(gf, ggml_cpy(ctx0, w_dep, wh.second));
-            }
-            grid_pending_cpy.clear();
+        if (rs_fast && grid_write_heads.size() == (size_t) nh && grid_s) {
+            ggml_tensor * grid_out = stack_heads_dim2(ctx0, grid_write_heads, N, D);
+            grid_out               = ggml_reshape_2d(ctx0, grid_out, state_size, n_seqs);
+            grid_out               = ggml_add(ctx0, grid_out, ggml_scale(ctx0, cur, 0.0f));
+            ggml_build_forward_expand(gf, ggml_cpy(ctx0, grid_out, grid_s));
+            grid_write_heads.clear();
         }
 
         if (il == n_layer - 1 && inp_out_ids && !bdh_debug_tag()) {
