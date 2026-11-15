@@ -27,7 +27,7 @@ export async function copyToClipboard(
 ): Promise<boolean> {
 	try {
 		// Try modern clipboard API first (secure contexts only)
-		if (navigator.clipboard && navigator.clipboard.writeText) {
+		if (window.isSecureContext && navigator.clipboard?.writeText) {
 			await navigator.clipboard.writeText(text);
 			toast.success(successMessage);
 

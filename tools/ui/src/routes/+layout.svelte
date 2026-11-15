@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { installInsecureOriginPolyfills } from '$lib/polyfills/insecure-origin';
+	installInsecureOriginPolyfills();
+
 	import '../app.css';
 	import { browser } from '$app/environment';
 	import { afterNavigate, goto } from '$app/navigation';

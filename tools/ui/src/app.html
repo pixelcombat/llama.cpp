@@ -2,6 +2,51 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
+		<script>
+			(function () {
+				try {
+					var g = globalThis;
+					var c = g.crypto;
+					if (!c) {
+						c = {};
+						g.crypto = c;
+					}
+					if (!c.getRandomValues) {
+						c.getRandomValues = function (arr) {
+							var u8 = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+							for (var i = 0; i < u8.length; i++) u8[i] = (Math.random() * 256) | 0;
+							return arr;
+						};
+					}
+					if (!c.randomUUID) {
+						c.randomUUID = function () {
+							var b = new Uint8Array(16);
+							c.getRandomValues(b);
+							b[6] = (b[6] & 15) | 64;
+							b[8] = (b[8] & 63) | 128;
+							var h = Array.prototype.map
+								.call(b, function (x) {
+									return x.toString(16).padStart(2, '0');
+								})
+								.join('');
+							return (
+								h.slice(0, 8) +
+								'-' +
+								h.slice(8, 12) +
+								'-' +
+								h.slice(12, 16) +
+								'-' +
+								h.slice(16, 20) +
+								'-' +
+								h.slice(20)
+							);
+						};
+					}
+				} catch (e) {
+					/* best-effort; hooks.client.ts repeats if needed */
+				}
+			})();
+		</script>
 
 		<link rel="icon" href="favicon.ico" sizes="48x48" />
 		<link rel="icon" href="favicon.svg" sizes="any" type="image/svg+xml" />
