@@ -2127,6 +2127,11 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
     struct ggml_backend_sched_split * splits = sched->splits;
 
     int prev_backend_id = -1;
+    static int split_prof = -1;
+    if (split_prof < 0) {
+        const char * env = getenv("GGML_SCHED_SPLIT_MS");
+        split_prof       = env ? atoi(env) : 0;
+    }
 
     for (int split_id = 0; split_id < sched->n_splits; split_id++) {
         struct ggml_backend_sched_split * split = &splits[split_id];
@@ -2155,6 +2160,8 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 ggml_backend_sched_copy_input(sched, split, split->inputs[input_id]);
             }
         }
+
+        const int64_t t_split0 = split_prof ? ggml_time_us() : 0;
 
         if (!sched->callback_eval) {
             enum ggml_status ec = ggml_backend_graph_compute_async(split_backend, &split->graph);
@@ -2193,6 +2200,18 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
 
                 j0 = j1;
             }
+        }
+
+        if (split_prof) {
+            ggml_backend_synchronize(split_backend);
+            const int64_t dt_us = ggml_time_us() - t_split0;
+            fprintf(stderr,
+                    "ggml_sched_split: id=%d backend=%s nodes=%d inputs=%d us=%lld\n",
+                    split_id,
+                    ggml_backend_name(split_backend),
+                    split->graph.n_nodes,
+                    split->n_inputs,
+                    (long long) dt_us);
         }
 
         // record the event of this split
