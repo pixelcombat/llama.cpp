@@ -12013,6 +12013,76 @@ void ggml_compute_forward_bdh_syn_head(
     }
 }
 
+// ggml_compute_forward_bdh_gated_decoder
+
+static void ggml_compute_forward_bdh_gated_decoder_f32(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    const ggml_tensor * decoder = dst->src[0];
+    const ggml_tensor * xsp     = dst->src[1];
+    const ggml_tensor * ysp     = dst->src[2];
+
+    const int64_t K = xsp->ne[0];
+    const int64_t D = decoder->ne[1];
+    const size_t  sw0 = decoder->nb[0] / sizeof(float);
+    const size_t  sw1 = decoder->nb[1] / sizeof(float);
+
+    const float * W  = (const float *) decoder->data;
+    const float * xs = (const float *) xsp->data;
+    const float * ys = (const float *) ysp->data;
+    float *       y  = (float *) dst->data;
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const bool w_contig = sw0 == 1 && sw1 == (size_t) K;
+
+    if (w_contig && params->wdata != nullptr) {
+        float * z = (float *) params->wdata;
+        const int64_t kr = (K + nth - 1) / nth;
+        const int64_t k0 = kr * (int64_t) ith;
+        const int64_t k1 = MIN(k0 + kr, K);
+        if (k0 < k1) {
+            ggml_vec_mul_f32((int) (k1 - k0), z + k0, xs + k0, ys + k0);
+        }
+        ggml_barrier(params->threadpool);
+
+        const int64_t dr = (D + nth - 1) / nth;
+        const int64_t d0 = dr * (int64_t) ith;
+        const int64_t d1 = MIN(d0 + dr, D);
+        for (int64_t d = d0; d < d1; ++d) {
+            float acc = 0.0f;
+            ggml_vec_dot_f32((int) K, &acc, 0, W + d * (size_t) K, 1, z, 1, 1);
+            y[d] = acc;
+        }
+        return;
+    }
+
+    const int64_t dr = (D + nth - 1) / nth;
+    const int64_t d0 = dr * (int64_t) ith;
+    const int64_t d1 = MIN(d0 + dr, D);
+
+    for (int64_t d = d0; d < d1; ++d) {
+        float acc = 0.0f;
+        for (int64_t n = 0; n < K; ++n) {
+            acc += W[n * sw0 + d * sw1] * xs[n] * ys[n];
+        }
+        y[d] = acc;
+    }
+}
+
+void ggml_compute_forward_bdh_gated_decoder(
+        const ggml_compute_params * params,
+              ggml_tensor * dst) {
+    switch (dst->type) {
+        case GGML_TYPE_F32:
+            ggml_compute_forward_bdh_gated_decoder_f32(params, dst);
+            break;
+        default:
+            GGML_ABORT("fatal error");
+    }
+}
+
 // ggml_compute_forward_map_custom2
 
 void ggml_compute_forward_map_custom2(

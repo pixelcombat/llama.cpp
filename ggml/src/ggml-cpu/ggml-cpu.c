@@ -1891,6 +1891,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 ggml_compute_forward_bdh_syn_head(params, tensor);
             } break;
+        case GGML_OP_BDH_GATED_DECODER:
+            {
+                ggml_compute_forward_bdh_gated_decoder(params, tensor);
+            } break;
         case GGML_OP_SCALE:
             {
                 ggml_compute_forward_scale(params, tensor);
@@ -2383,6 +2387,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_MUL_MAT_ID:
         case GGML_OP_OUT_PROD:
         case GGML_OP_BDH_SYN_HEAD:
+        case GGML_OP_BDH_GATED_DECODER:
         case GGML_OP_SET_ROWS:
             {
                 n_tasks = n_threads;
@@ -3051,6 +3056,10 @@ struct ggml_cplan ggml_graph_plan(
                         const int64_t K   = ggml_get_op_params_i32(node, 0);
                         const int64_t per_thread = S_v + (K > 1 ? S_v * S_v : 0);
                         cur = per_thread * sizeof(float) * n_tasks;
+                    } break;
+                case GGML_OP_BDH_GATED_DECODER:
+                    {
+                        cur = sizeof(float) * node->src[1]->ne[0];
                     } break;
                 case GGML_OP_COUNT:
                     {

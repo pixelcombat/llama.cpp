@@ -68,3 +68,41 @@ void ggml_cuda_bdh_syn_head(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
     const int blocks_u = (int) ((total + tpb - 1) / tpb);
     k_bdh_syn_head_update<<<blocks_u, tpb, 0, stream>>>(g_mut, q, xv, N, D, sg0, sgb);
 }
+
+static __global__ void k_bdh_gated_decoder_y(
+        const float * W, const float * xs, const float * ys, float * y,
+        const int64_t K, const int64_t D,
+        const int64_t sw0, const int64_t sw1) {
+    const int64_t d = (int64_t) blockIdx.x * blockDim.x + threadIdx.x;
+    if (d >= D) {
+        return;
+    }
+    float acc = 0.0f;
+    for (int64_t n = 0; n < K; ++n) {
+        acc += W[n * sw0 + d * sw1] * xs[n] * ys[n];
+    }
+    y[d] = acc;
+}
+
+void ggml_cuda_bdh_gated_decoder(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+    const ggml_tensor * decoder = dst->src[0];
+    const ggml_tensor * xsp     = dst->src[1];
+    const ggml_tensor * ysp     = dst->src[2];
+
+    GGML_ASSERT(decoder->type == GGML_TYPE_F32 && xsp->type == GGML_TYPE_F32 && ysp->type == GGML_TYPE_F32);
+
+    const int64_t K   = xsp->ne[0];
+    const int64_t D   = decoder->ne[1];
+    const int64_t sw0 = decoder->nb[0] / (int64_t) sizeof(float);
+    const int64_t sw1 = decoder->nb[1] / (int64_t) sizeof(float);
+
+    const float * W  = (const float *) decoder->data;
+    const float * xs = (const float *) xsp->data;
+    const float * ys = (const float *) ysp->data;
+    float *       y  = (float *) dst->data;
+
+    cudaStream_t stream = ctx.stream();
+    const int    tpb    = 256;
+    const int blocks_y  = (int) ((D + tpb - 1) / tpb);
+    k_bdh_gated_decoder_y<<<blocks_y, tpb, 0, stream>>>(W, xs, ys, y, K, D, sw0, sw1);
+}

@@ -305,6 +305,9 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     const char * syn_fused_env = std::getenv("BDH_SYN_FUSED");
     const bool   syn_fused_off = syn_fused_env && std::strcmp(syn_fused_env, "0") == 0;
     const bool   syn_fused     = syn_step && rs_fast && rope_fast && !syn_fused_off;
+    const char * dec_fused_env = std::getenv("BDH_DEC_FUSED");
+    const bool   dec_fused_off = dec_fused_env && std::strcmp(dec_fused_env, "0") == 0;
+    const bool   dec_fused     = rope_fast && !sparse_nt_path && !dec_fused_off;
     if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
@@ -436,10 +439,15 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
             ggml_tensor * gated_ntn = ggml_mul(ctx0, x_sparse, y_sparse);
             bdh_debug_select_il(gated_ntn, "gated_ntn", il);
         }
-        ggml_tensor * gated_dec = rope_fast ? ggml_mul(ctx0, xsp, ysp)
-                                            : ggml_cont(ctx0, ggml_mul(ctx0, xsp, ysp));
-        bdh_debug_select_il(gated_dec, "gated_dec", il);
-        ggml_tensor * y_mlp = build_lora_mm(m.bdh_decoder, gated_dec, nullptr);
+        ggml_tensor * y_mlp;
+        if (dec_fused) {
+            y_mlp = ggml_bdh_gated_decoder(ctx0, m.bdh_decoder, xsp, ysp);
+        } else {
+            ggml_tensor * gated_dec = rope_fast ? ggml_mul(ctx0, xsp, ysp)
+                                                : ggml_cont(ctx0, ggml_mul(ctx0, xsp, ysp));
+            bdh_debug_select_il(gated_dec, "gated_dec", il);
+            y_mlp = build_lora_mm(m.bdh_decoder, gated_dec, nullptr);
+        }
         cb(y_mlp, "model.layers.y_mlp", il);
         bdh_debug_select_il(y_mlp, "y_mlp", il);
 

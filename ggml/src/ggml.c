@@ -1117,9 +1117,10 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "GLU",
     "BDH_SYN_HEAD",
+    "BDH_GATED_DECODER",
 };
 
-static_assert(GGML_OP_COUNT == 103, "GGML_OP_COUNT != 103");
+static_assert(GGML_OP_COUNT == 104, "GGML_OP_COUNT != 104");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1234,9 +1235,10 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
 
     "glu(x)",
     "bdh_syn_head(grid,qr,x)",
+    "bdh_gated_decoder(dec,xsp,ysp)",
 };
 
-static_assert(GGML_OP_COUNT == 103, "GGML_OP_COUNT != 103");
+static_assert(GGML_OP_COUNT == 104, "GGML_OP_COUNT != 104");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -3526,6 +3528,30 @@ struct ggml_tensor * ggml_bdh_syn_head(
     result->src[0] = grid;
     result->src[1] = qr;
     result->src[2] = x;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_bdh_gated_decoder(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * decoder,
+        struct ggml_tensor  * xsp,
+        struct ggml_tensor  * ysp) {
+    GGML_ASSERT(decoder->type == GGML_TYPE_F32);
+    GGML_ASSERT(xsp->type == GGML_TYPE_F32);
+    GGML_ASSERT(ysp->type == GGML_TYPE_F32);
+    GGML_ASSERT(decoder->ne[0] == xsp->ne[0]);
+    GGML_ASSERT(xsp->ne[0] == ysp->ne[0]);
+    GGML_ASSERT(xsp->ne[1] == 1);
+    GGML_ASSERT(ysp->ne[1] == 1);
+
+    const int64_t ne[4] = { decoder->ne[1], 1, 1, 1 };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 2, ne);
+
+    result->op     = GGML_OP_BDH_GATED_DECODER;
+    result->src[0] = decoder;
+    result->src[1] = xsp;
+    result->src[2] = ysp;
 
     return result;
 }

@@ -607,6 +607,7 @@ extern "C" {
         GGML_OP_GLU,
 
         GGML_OP_BDH_SYN_HEAD,
+        GGML_OP_BDH_GATED_DECODER,
 
         GGML_OP_COUNT,
     };
@@ -1541,6 +1542,13 @@ extern "C" {
             struct ggml_tensor  * grid,
             struct ggml_tensor  * qr,
             struct ggml_tensor  * x);
+
+    // BDH decode (T=1): y = decoder · (xsp ⊙ ysp), fused elementwise gate + GEMV rows.
+    GGML_API struct ggml_tensor * ggml_bdh_gated_decoder(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * decoder,
+            struct ggml_tensor  * xsp,
+            struct ggml_tensor  * ysp);
 
     //
     // operations on tensors without backpropagation
