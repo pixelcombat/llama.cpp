@@ -209,7 +209,7 @@ static ggml_tensor * bdh_grid_outer_delta(
         ggml_context * ctx,
         ggml_tensor *  qr,
         ggml_tensor *  x) {
-  // stamped (N,1) ⊗ x (D,) → (N,D) — jak streaming.py: unsqueeze(-1) * x
+    // stamped (N,1) ⊗ x (D,) → (N,D) — jak streaming.py: unsqueeze(-1) * x
     const int64_t N = qr->ne[0];
     const int64_t D = x->ne[0];
     ggml_tensor * qr_w  = ggml_cont(ctx, ggml_repeat_4d(ctx, qr, N, D, 1, 1));
@@ -222,8 +222,11 @@ static ggml_tensor * bdh_grid_head_write_nd(
         ggml_context * ctx,
         ggml_tensor *  grid_nd,
         ggml_tensor *  qr,
-        ggml_tensor *  x) {
-    return ggml_cont(ctx, ggml_add(ctx, grid_nd, bdh_grid_outer_delta(ctx, qr, x)));
+        ggml_tensor *  x,
+        bool           fast_single = false) {
+    ggml_tensor * delta = bdh_grid_outer_delta(ctx, qr, x);
+    ggml_tensor * sum   = ggml_add(ctx, grid_nd, delta);
+    return fast_single ? sum : ggml_cont(ctx, sum);
 }
 
 } // namespace
@@ -327,7 +330,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     ggml_tensor * w_enc   = bdh_encoder_weights_2d(ctx0, m.bdh_encoder, nh, N, D);
     ggml_tensor * w_enc_v = ggml_cont(ctx0, ggml_permute(ctx0, m.bdh_encoder_v, 1, 0, 2, 3));
 
-    std::vector<ggml_tensor *> grid_write_heads;
+    std::vector<std::pair<ggml_tensor *, ggml_tensor *>> grid_pending_cpy;
 
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * x = rope_fast ? cur : ggml_cont(ctx0, cur);
@@ -365,10 +368,11 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk, rope_fast);
                 y_h                  = rope_fast ? ggml_mul_mat(ctx0, grid_h, qr)
                                                  : ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
-                ggml_tensor * grid_w = bdh_grid_head_write_nd(ctx0, grid_h, qr, x);
+                ggml_tensor * grid_w =
+                    bdh_grid_head_write_nd(ctx0, grid_h, qr, rope_fast ? ggml_cont(ctx0, x) : x, rope_fast);
                 grid_w               = ggml_add(ctx0, grid_w, ggml_scale(ctx0, y_h, 0.0f));
                 if (rs_fast) {
-                    grid_write_heads.push_back(grid_w);
+                    grid_pending_cpy.emplace_back(grid_w, grid_h);
                 } else {
                     grid_out_heads.push_back(grid_w);
                 }
@@ -423,12 +427,12 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         cur   = build_norm(ggml_add(ctx0, x, y_mlp), nullptr, nullptr, LLM_NORM, il);
         bdh_debug_select_il(cur, "l_out", il);
 
-        if (rs_fast && grid_write_heads.size() == (size_t) nh && grid_s) {
-            ggml_tensor * grid_out = stack_heads_dim2(ctx0, grid_write_heads, N, D);
-            grid_out               = ggml_reshape_2d(ctx0, grid_out, state_size, n_seqs);
-            grid_out               = ggml_add(ctx0, grid_out, ggml_scale(ctx0, cur, 0.0f));
-            ggml_build_forward_expand(gf, ggml_cpy(ctx0, grid_out, grid_s));
-            grid_write_heads.clear();
+        if (rs_fast && !grid_pending_cpy.empty()) {
+            for (const auto & wh : grid_pending_cpy) {
+                ggml_tensor * w_dep = ggml_add(ctx0, wh.first, ggml_scale(ctx0, cur, 0.0f));
+                ggml_build_forward_expand(gf, ggml_cpy(ctx0, w_dep, wh.second));
+            }
+            grid_pending_cpy.clear();
         }
 
         if (il == n_layer - 1 && inp_out_ids && !bdh_debug_tag()) {
