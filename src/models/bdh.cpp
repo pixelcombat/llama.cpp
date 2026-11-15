@@ -335,7 +335,6 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 // Stan głowy (N,D) — zgodnie z streaming.py grids[layer,h]
                 ggml_tensor * grid_h = ggml_view_2d(
                     ctx0, grid_s, N, D, N * (int64_t) sizeof(float), (size_t) h * head_grid_bytes);
-                grid_h             = ggml_cont(ctx0, grid_h);
                 ggml_tensor * qr     = bdh_rope_apply(ctx0, ph_cos, ph_sin, qk);
                 y_h                  = ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
                 grid_out_heads.push_back(bdh_grid_head_write_nd(ctx0, grid_h, qr, x));
