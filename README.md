@@ -1,134 +1,111 @@
-# llama.cpp
+# Small Dragon Hatchling (BDH) on llama.cpp
 
-![llama.cpp](https://raw.githubusercontent.com/ggml-org/llama-brand/refs/heads/master/logo/svg/cover/llama-cpp/cover-llama-cpp-dark.svg)
+Branch **`bdh-v1.0.0`** — [llama.cpp](https://github.com/ggml-org/llama.cpp) at upstream tag **v1.0.0**, extended for the **BDH** recurrent architecture.
 
-<div align="center">
+Upstream project overview and general build options: **README-llama.cpp.md**.
 
-<b>LLM inference in C/C++</b>
+---
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/github/v/release/ggml-org/llama.cpp?filter=v*&color=brightgreen)](https://github.com/ggml-org/llama.cpp/releases?q=tag:v1)
-[![Nightly](https://img.shields.io/github/v/release/ggml-org/llama.cpp?label=nightly&filter=b*&color=orange)](https://github.com/ggml-org/llama.cpp/releases?q=b)
-[![Server](https://img.shields.io/github/actions/workflow/status/ggml-org/llama.cpp/server.yml?label=Server)](https://github.com/ggml-org/llama.cpp/actions/workflows/server.yml)
-[![Docker](https://img.shields.io/github/actions/workflow/status/ggml-org/llama.cpp/docker.yml?label=Docker)](https://github.com/ggml-org/llama.cpp/actions/workflows/docker.yml)
-[![Winget](https://img.shields.io/github/actions/workflow/status/ggml-org/llama.cpp/winget.yml?label=Winget)](https://github.com/ggml-org/llama.cpp/actions/workflows/winget.yml)
+## Idea
 
-[ggml](https://github.com/ggml-org/ggml) / [ops](https://github.com/ggml-org/llama.cpp/blob/master/docs/ops.md) / [maintainer PRs](https://github.com/ggml-org/llama.cpp/pulls?q=is%3Apr%20is%3Aopen%20draft%3AFalse%20(author%3Asanmai%20OR%20author%3Argerganov%20OR%20author%3AKitaitiMakoto%20OR%20author%3Adanbev%20OR%20author%3Aaldehir%20OR%20author%3Amax-krasnyansky%20OR%20author%3ACISC%20OR%20author%3Aggerganov%20OR%20author%3Aam17an%20OR%20author%3Ajhen0409%20OR%20author%3Abartowski1182%20OR%20author%3Anikwen%20OR%20author%3Ahipudding%20OR%20author%3Aravi9%20OR%20author%3AServeurpersoCom%20OR%20author%3Athelittlefireman%20OR%20author%3Apwilkin%20OR%20author%3Areeselevine%20OR%20author%3Angxson%20OR%20author%3Ajeffbolznv%20OR%20author%3Amarty1885%20OR%20author%3A0cc4m%20OR%20author%3ATitaniumtown%20OR%20author%3Aangt%20OR%20author%3AIMbackK%20OR%20author%3Aarthw%20OR%20author%3AJohannesGaessler%20OR%20author%3AORippler%20OR%20author%3Aruixiang63%20OR%20author%3Axctan%20OR%20author%3AmasterFoad%20OR%20author%3Aallozaur%20OR%20author%3AAndreas-Krebbel%20OR%20author%3Ayomaytk%20OR%20author%3Aaendk%20OR%20author%3Awine99%20OR%20author%3Agaugarg-nv%20OR%20author%3Ataronaeo%20OR%20author%3Aforforever73%20OR%20author%3Achaxu01%20OR%20author%3Alhez%20OR%20author%3AAlekseiNikiforovIBM%20OR%20author%3Anetrunnereve%20OR%20author%3Afairydreaming%20OR%20author%3Aynankani)%20sort%3Aupdated-desc) / [dev stats](https://github.com/ggml-org/llama.cpp-dev) / [lib llama API](https://github.com/ggml-org/llama.cpp/issues/9289) / [llama-server REST API](https://github.com/ggml-org/llama.cpp/issues/9291)
+A transformer spends compute and memory on a **KV cache** that grows with each generated token. Attention re-reads that cache every step.
 
-</div>
+BDH keeps a fixed-size **synaptic grid**: state lives in a recurrent buffer updated after each token. Decode is a short graph (often one token per step) that reads the grid, runs a gated decoder, and writes back. There is no unbounded KV tensor in the familiar sense.
 
-## Quick start
+**Prefill** runs the prompt in a **tight micro-batch** (`n_ubatch` = prompt length) so the grid matches full-sequence training before autoregressive steps begin.
 
-A few options to get `llama.cpp` installed on your machine:
+## Versus a standard decoder stack
+
+| | Typical causal transformer | BDH in this fork |
+|--|---------------------------|------------------|
+| Memory across steps | KV cache (layers × heads × seq) | Synaptic grid (bounded) |
+| Attention pattern | Full or windowed softmax over past | Per-head sparse routing on the grid |
+| Prefill | Large batched matmuls | Tight ubatch; dedicated encoder ops |
+| Decode hot path | KV read + attention | `GGML_OP_BDH_SYN_HEAD` (+ optional fuse) |
+
+## What this fork adds
+
+- **`LLM_ARCH_BDH`** — model type, tensors, `llama_model_bdh`, graph node budgets.
+- **ggml ops** — `BDH_SYN_HEAD`, gated decoder, encoder ReLU paths, LM head; **`GGML_OP_COUNT`** extended accordingly.
+- **Synaptic decode** — `bdh_synaptic` on single-token steps; `synchronize()` after tight prefill on GPU paths.
+- **Fused path** — `BDH_SYN_FUSED` (CPU/CUDA) for decode throughput.
+- **Server** — per-slot `n_ctx`, chat trim for BDH when runtime context &lt; train window.
+- **Conversion** — `scripts/convert_bdh_pt_to_gguf.py`.
+
+## Verified (2026-11-16)
+
+Staging build: CUDA **sm_60 + sm_70**, OpenBLAS, `llama-server`.  
+Weights: **Polish** `bdh-100m-bpe8k-pl` (~100M, BPE 8k).
+
+| Check | Result |
+|-------|--------|
+| PL chat template — greedy top-1 vs PyTorch reference | pass |
+| `llama-server` chat — no role/garbage regressions | 3× pass |
+| Batch prefill vs tight ubatch greedy chain | pass |
+| Prompt length beyond train window (2048 ctx + shift) | 2× pass |
+| CUDA build (`llama-server` target) | 137/137 |
+
+Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
+
+## Model download
+
+Private Hugging Face repo (weights not in git):
+
+**[czescapk/bdh-100m-bpe8k-pl](https://huggingface.co/czescapk/bdh-100m-bpe8k-pl)**
+
+| File | Role |
+|------|------|
+| `bdh-100m-bpe8k-pl.gguf` | Inference with this fork |
+| `bdh-100m-bpe8k-pl.pt` | PyTorch checkpoint |
 
 ```bash
-# curl
-curl -LsSf https://llama.app/install.sh | sh
-
-# powershell
-irm https://llama.app/install.ps1 | iex
+pip install -U huggingface_hub
+hf auth login   # access required while repo is private
+hf download czescapk/bdh-100m-bpe8k-pl --local-dir ./models/bdh-pl
 ```
 
-- Visit https://llama.app and follow the instructions
-- Run with Docker - see our [Docker documentation](docs/docker.md)
-- Download pre-built binaries from the [releases page](https://github.com/ggml-org/llama.cpp/releases)
-- Build from source by cloning this repository - check out [our build guide](docs/build.md)
+## Build
 
-Once installed:
+Requires Linux, GCC ≥ 11, CMake ≥ 3.20, optional CUDA for GPU.
 
-```sh
-# Download and run a model directly from Hugging Face
-llama cli -hf ggml-org/Qwen3.5-0.8B-GGUF
+```bash
+git clone https://github.com/pixelcombat/llama.cpp.git
+cd llama.cpp && git checkout bdh-v1.0.0
 
-# Launch OpenAI-compatible API server
-llama serve -hf ggml-org/Qwen3.5-0.8B-GGUF
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release \
+  -DLLAMA_BUILD_SERVER=ON -DGGML_BLAS=ON -DGGML_CUDA=ON \
+  -DCMAKE_CUDA_ARCHITECTURES="60;70"
+cmake --build build-cuda -j --target llama-server
 ```
 
-<table align="center">
-    <tr>
-        <td align="center" width=50%>
-            <img width="1310" height="888" alt="VLM session with `llama cli`" src="https://github.com/user-attachments/assets/88726b48-1713-48aa-a525-95a02e78afc4" />
-            <i>VLM session with <b>llama cli</b></i>
-        </td>
-        <td align="center">
-            <img width="1392" height="958" alt="Built-in web UI against `llama serve` running Qwen 3.6" src="https://github.com/user-attachments/assets/b402f972-2e32-4def-8771-8d849f08cf2e" />
-            <i>Built-in web UI against <b>llama serve</b></i>
-        </td>
-    </tr>
-<table>
+CPU-only: omit `GGML_CUDA` and the CUDA arch flag; use `build/` instead of `build-cuda/`.
 
-## Description
+Convert your own checkpoint:
 
-The main goal of `llama.cpp` is to enable LLM (and VLM) inference with minimal setup and state-of-the-art performance on
-a wide range of hardware - locally and in the cloud.
+```bash
+python3 scripts/convert_bdh_pt_to_gguf.py path/to/model.pt -o model.gguf
+```
 
-- Plain C/C++ implementation without any dependencies
-- Apple silicon is a first-class citizen - optimized via ARM NEON, Accelerate and Metal frameworks
-- AVX, AVX2, AVX512 and AMX support for x86 architectures
-- RVV, ZVFH, ZFH, ZICBOP and ZIHINTPAUSE support for RISC-V architectures
-- 1.5-bit, 2-bit, 3-bit, 4-bit, 5-bit, 6-bit, and 8-bit integer quantization for faster inference and reduced memory use
-- Custom CUDA kernels for running LLMs on NVIDIA GPUs (support for AMD GPUs via HIP and Moore Threads GPUs via MUSA)
-- Vulkan and SYCL backend support
-- CPU+GPU hybrid inference to partially accelerate models larger than the total VRAM capacity
+## Run (BDH example)
 
-The `llama.cpp` project is build on top of the [ggml](https://github.com/ggml-org/ggml) library.
+```bash
+./build-cuda/bin/llama-server \
+  -m ./models/bdh-pl/bdh-100m-bpe8k-pl.gguf \
+  --ctx-size 2048 --context-shift -ngl 99 --parallel 1
+```
 
-## Supported backends
+Use a plain user/assistant template or `--chat-template-file` if tokenizer metadata does not match your UI.
 
-| Backend | Target devices |
-| --- | --- |
-| [BLAS](docs/build.md#blas-build) | All |
-| [BLIS](docs/backend/BLIS.md) | All |
-| [CANN](docs/build.md#cann) | Huawei Ascend NPU |
-| [CUDA](docs/build.md#cuda) | Nvidia GPU |
-| [HIP](docs/build.md#hip) | AMD GPU |
-| [Hexagon](docs/backend/snapdragon/README.md) | Snapdragon |
-| [IBM zDNN](docs/backend/zDNN.md) | IBM Z & LinuxONE |
-| [MUSA](docs/build.md#musa) | Moore Threads GPU |
-| [Metal](docs/build.md#metal-build) | Apple Silicon |
-| [OpenCL](docs/backend/OPENCL.md) | Adreno GPU |
-| [OpenVINO [In Progress]](docs/backend/OPENVINO.md) | Intel CPUs, GPUs, and NPUs |
-| [RPC](https://github.com/ggml-org/llama.cpp/tree/master/tools/rpc) | All |
-| [SYCL](docs/backend/SYCL.md) | Intel GPU |
-| [VirtGPU](docs/backend/VirtGPU.md) | VirtGPU APIR |
-| [Vulkan](docs/build.md#vulkan) | GPU |
-| [WebGPU](docs/build.md#webgpu) | All |
-| [ZenDNN](docs/build.md#zendnn) | AMD CPU |
+| Variable | Default | Notes |
+|----------|---------|--------|
+| `BDH_SYN_FUSED` | on | Fused synaptic head |
+| `BDH_RS_DIRECT` | on | Direct recurrent state I/O |
+| `BDH_SYNAPTIC` | on | Grid updates on decode (`0` = off) |
 
-## Documentation
+## Changelog
 
-#### Tools
+[CHANGELOG-BDH.md](CHANGELOG-BDH.md) — commits on top of v1.0.0.
 
-- [cli](tools/cli/README.md)
-- [completion](tools/completion/README.md)
-- [server](tools/server/README.md)
-- [GBNF grammars](grammars/README.md)
+## License
 
-#### Development
-
-- [How to build](docs/build.md)
-- [Running on Docker](docs/docker.md)
-- [Build on Android](docs/android.md)
-- [Multi-GPU usage](docs/multi-gpu.md)
-- [Performance troubleshooting](docs/development/token_generation_performance_tips.md)
-- [GGML tips & tricks](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
-- [XCFramework](docs/xcframework.md)
-- [Completions](docs/completions.md)
-- [Models](docs/models.md)
-- [Release process](docs/release.md)
-
-## Contributing
-
-- Contributors can open PRs
-- Collaborators will be invited based on contributions
-- Maintainers can push to branches in the `llama.cpp` repo and merge PRs into the `master` branch
-- Any help with managing issues, PRs and projects is very appreciated!
-- Read the [CONTRIBUTING.md](CONTRIBUTING.md) for more information
-
-## Acknowledgements
-
-- [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) - Single-header HTTP server, used by `llama-server` - MIT license
-- [nothings/stb](https://github.com/nothings/stb) - Single-header image format decoder, used by multimodal subsystem - Public domain
-- [nlohmann/json](https://github.com/nlohmann/json) - Single-header JSON library, used by various tools/examples - MIT License
-- [mackron/miniaudio](https://github.com/mackron/miniaudio) - Single-header audio format decoder, used by multimodal subsystem - Public domain
-- [sheredom/subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain
+**MIT** — same as [llama.cpp](https://github.com/ggml-org/llama.cpp) ([LICENSE](LICENSE)). Model weights are distributed separately on Hugging Face under the license stated in the model card there.

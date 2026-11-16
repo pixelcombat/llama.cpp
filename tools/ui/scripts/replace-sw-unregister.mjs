@@ -51,14 +51,13 @@ if (existsSync(indexPath)) {
 	if (!html.includes('bdh-insecure-polyfill')) {
 		html = html.replace('<meta charset="utf-8" />', `<meta charset="utf-8" />\n\t\t${snippet}`);
 	}
-	const { spawnSync } = await import('node:child_process');
-	const py = spawnSync(
-		'python3',
-		['-c', 'import sys; sys.path.insert(0,""); import llama_ui_phone as m; sys.stdout.write(m.inject_index(sys.stdin.read()))'],
-		{ input: html, encoding: 'utf8' }
-	);
-	if (py.status === 0 && py.stdout.includes('phone-boot')) {
-		html = py.stdout;
+	const hook = process.env.LLAMA_UI_INDEX_HOOK;
+	if (hook) {
+		const { spawnSync } = await import('node:child_process');
+		const py = spawnSync('python3', ['-c', hook], { input: html, encoding: 'utf8' });
+		if (py.status === 0 && py.stdout) {
+			html = py.stdout;
+		}
 	}
 	writeFileSync(indexPath, html, 'utf8');
 }
