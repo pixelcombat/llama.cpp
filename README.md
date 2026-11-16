@@ -59,6 +59,8 @@ These checkpoints **are not fit for any concrete task** and **do not answer ques
 
 If you train a **larger** (or otherwise stronger) BDH model on your own hardware with this stack, please **share a note** in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) so Andrzej can try it too.
 
+**Future idea (not done here):** [Multi-token prediction (MTP)](https://arxiv.org/abs/2404.19737) has **not** been tried with BDH in this fork. It may be worth considering in later training or inference work on this architecture — a proposal only, with no results claimed.
+
 Weights are not stored in git. Download from Hugging Face:
 
 **[czescapk/bdh-100m-bpe8k-pl](https://huggingface.co/czescapk/bdh-100m-bpe8k-pl)**
