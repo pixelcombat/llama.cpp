@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+message: "If you use this software, cite Pathway's BDH architecture paper and this repository as appropriate."
+title: "llama.cpp with Baby Dragon Hatchling (BDH) inference"
+type: software
+authors:
+  - name: pixelcombat
+repository-code: "https://github.com/pixelcombat/llama.cpp"
+url: "https://github.com/pixelcombat/llama.cpp"
+license: MIT
+abstract: "Fork of llama.cpp adding inference for Pathway's Dragon Hatchling (BDH) architecture and GGUF conversion for BDH checkpoints."
+references:
+  - type: generic
+    title: "The Dragon Hatchling: The Missing Link between the Transformer and Models of the Brain"
+    authors:
+      - family-names: Kosowski
+        given-names: Adrian
+      - family-names: Uznański
+        given-names: Przemysław
+      - family-names: Chorowski
+        given-names: Jan
+      - family-names: Stamirowska
+        given-names: Zuzanna
+      - family-names: Bartoszkiewicz
+        given-names: Michał
+    year: 2025
+    doi: 10.48550/arXiv.2509.26507
+    identifiers:
+      - type: arxiv
+        value: "2509.26507"
+preferred-citation:
+  type: generic
+  title: "The Dragon Hatchling: The Missing Link between the Transformer and Models of the Brain"
+  authors:
+    - family-names: Kosowski
+      given-names: Adrian
+    - family-names: Uznański
+      given-names: Przemysław
+    - family-names: Chorowski
+      given-names: Jan
+    - family-names: Stamirowska
+      given-names: Zuzanna
+    - family-names: Bartoszkiewicz
+      given-names: Michał
+  year: 2025
+  doi: 10.48550/arXiv.2509.26507
+  identifiers:
+    - type: arxiv
+      value: "2509.26507"

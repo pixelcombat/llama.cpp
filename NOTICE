@@ -1,0 +1,23 @@
+Third-party components in this repository
+===========================================
+
+llama.cpp (upstream)
+--------------------
+Source: https://github.com/ggml-org/llama.cpp
+License: MIT (see LICENSE)
+
+Baby Dragon Hatchling / BDH (architecture and reference implementation)
+-----------------------------------------------------------------------
+Architecture authors: Pathway Technology, Inc.
+Paper: arXiv:2509.26507 (2025)
+Reference code: https://github.com/pathwaycom/bdh
+License: MIT, Copyright 2025 Pathway Technology, Inc.
+Full text: licenses/LICENSE-pathway-bdh
+
+Other bundled licenses
+----------------------
+See licenses/ (e.g. licenses/LICENSE-jsonhpp).
+
+Test checkpoints on Hugging Face
+--------------------------------
+Weights in https://huggingface.co/czescapk/bdh-100m-bpe8k-pl are not part of this git repository; license terms are stated in the model card there.

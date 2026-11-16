@@ -1,5 +1,7 @@
 # BDH regression results (2026-11-16)
 
+Reproducibility (training, SHA-256, commands): [BDH-REPRODUCIBILITY.md](BDH-REPRODUCIBILITY.md).
+
 Upstream base: **v1.0.0** + merge `bcdbac8`, fixes `fd7371e`, `510d025`.  
 Build: `build-bdh-cuda-staging` (CUDA sm_60/70, OpenBLAS, `llama-server`).
 

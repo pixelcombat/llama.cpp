@@ -2,7 +2,7 @@
 
 Branch **`bdh-v1.0.0`** — [llama.cpp](https://github.com/ggml-org/llama.cpp) at upstream tag **v1.0.0**, extended for the **BDH** recurrent architecture.
 
-Architecture source: Pathway, [*The Dragon Hatchling: The Missing Link between the Transformer and Models of the Brain*](https://arxiv.org/abs/2509.26507) (arXiv:2509.26507).
+Architecture source: Pathway [1].
 
 Upstream project overview and general build options: **README-llama.cpp.md**.
 
@@ -67,7 +67,7 @@ I apologize that I lack hardware sufficient to train a sensible BDH model; I lea
 
 ### Multi-token prediction (MTP)
 
-[Multi-token prediction](https://arxiv.org/abs/2404.19737) adds auxiliary output heads (Transformer / DeepSeek V3 pattern). Compatible with BDH; not trained or run here. As of 2026-11-16, no public BDH paper, checkpoint, or inference port with trained MTP heads was found. Heads require joint training with the model, preferably from initialization on the next larger run, not on the ~100M checkpoint. Pathway's later BDH-CQ work ([arXiv:2608.09888](https://arxiv.org/abs/2608.09888), August 2026) is recurrent latent reasoning, not MTP, and its weights are not public.
+[Multi-token prediction](https://arxiv.org/abs/2404.19737) [2] adds auxiliary output heads (Transformer / DeepSeek-V3 pattern [3]). Compatible with BDH; not trained or run here. As of 2026-11-16, no public BDH paper, checkpoint, or inference port with trained MTP heads was found. Heads require joint training with the model, preferably from initialization on the next larger run, not on the ~100M checkpoint. Pathway's later BDH-CQ work [4] is recurrent latent reasoning, not MTP, and its weights are not public.
 
 Weights are not stored in git. Download from Hugging Face:
 
@@ -131,6 +131,34 @@ Use a plain user/assistant template or `--chat-template-file` if tokenizer metad
 
 [CHANGELOG-BDH.md](CHANGELOG-BDH.md) — commits on top of v1.0.0.
 
+## Reproducibility
+
+[docs/BDH-REPRODUCIBILITY.md](docs/BDH-REPRODUCIBILITY.md) — training facts, SHA-256 of published weights, conversion and run commands. Integration test summary: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
+
+## Citation
+
+Cite Pathway for the **BDH architecture** [1]. Cite this repository for the **llama.cpp integration** and test checkpoints.
+
+```bibtex
+@misc{kosowski2025dragonhatchlingmissinglink,
+      title={The Dragon Hatchling: The Missing Link between the Transformer and Models of the Brain}, 
+      author={Adrian Kosowski and Przemysław Uznański and Jan Chorowski and Zuzanna Stamirowska and Michał Bartoszkiewicz},
+      year={2025},
+      eprint={2509.26507},
+      archivePrefix={arXiv},
+      primaryClass={cs.NE},
+      url={https://arxiv.org/abs/2509.26507}, 
+}
+```
+
+## References
+
+1. A. Kosowski, P. Uznański, J. Chorowski, Z. Stamirowska, M. Bartoszkiewicz, *The Dragon Hatchling: The Missing Link between the Transformer and Models of the Brain*, arXiv:2509.26507, 2025.
+2. F. Gloeckle et al., *Better & Faster Large Language Models via Multi-token Prediction*, arXiv:2404.19737, 2024.
+3. DeepSeek-AI et al., *DeepSeek-V3 Technical Report*, arXiv:2412.19437, 2025.
+4. B. Engdahl et al., *BDH-CQ: In-Context Learning with Recurrent Latent Reasoning*, arXiv:2608.09888, 2026.
+5. ggml-org, *llama.cpp*, https://github.com/ggml-org/llama.cpp, MIT License.
+
 ## License
 
-**MIT** — same as [llama.cpp](https://github.com/ggml-org/llama.cpp) ([LICENSE](LICENSE)). Model weights are distributed separately on Hugging Face under the license stated in the model card there.
+**MIT** — same as llama.cpp [5] ([LICENSE](LICENSE)). See [NOTICE](NOTICE) and [licenses/LICENSE-pathway-bdh](licenses/LICENSE-pathway-bdh). Model weights are distributed separately on Hugging Face under the license stated in the model card there.
