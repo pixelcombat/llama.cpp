@@ -1994,16 +1994,21 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
         }
     }
 
+    if (model.arch == LLM_ARCH_BDH && batch_inp.tokens.size() > 1) {
+        LLAMA_LOG_INFO(
+                "%s: BDH multi-decode n_tok=%zu embd=%zu state=%zu syn=%d tight=%d causal=%d embd_out=%d\n",
+                __func__, batch_inp.tokens.size(), batch_inp.embd.size(), batch_inp.state.size(),
+                (int) bdh_synaptic, (int) bdh_tight_prefill_decode_enabled(), (int) cparams.causal_attn,
+                (int) output_all);
+    }
+
     if (model.arch == LLM_ARCH_BDH && bdh_synaptic && bdh_tight_prefill_decode_enabled() && cparams.causal_attn &&
         !output_all && batch_inp.tokens.size() > 1) {
-        bool text_rows_only = true;
-        for (const auto & tok : batch_inp.tokens) {
-            if (tok.has_embd || tok.has_state) {
-                text_rows_only = false;
-                break;
-            }
-        }
+        // Server batches only set has_embd/has_state flags for pure embedding rows; rely on
+        // the attached payload buffers (llama-server chat is text-only for BDH).
+        const bool text_rows_only = batch_inp.embd.empty() && batch_inp.state.empty();
         if (text_rows_only) {
+            LLAMA_LOG_DEBUG("%s: BDH tight prefill split, n_tokens = %zu\n", __func__, batch_inp.tokens.size());
             bool auto_pos = true;
             for (const auto & tok : batch_inp.tokens) {
                 if (tok.pos[0] != 0 || tok.pos[1] != 0 || tok.pos[2] != 0 || tok.pos[3] != 0) {
@@ -2047,6 +2052,18 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
                 std::fill(output_ids.begin(), output_ids.end(), -1);
                 output_ids[out_batch_idx] = 0;
                 n_outputs = 1;
+
+                // Backend sampling may retain rows from per-token micro-decodes; force
+                // common_sampler_sample() to read fresh logits via get_logits_ith().
+                if (has_samplers) {
+                    synchronize();
+                    if (sampling.sampled.has_data()) {
+                        std::fill_n(sampling.sampled.data, sampling.sampled.size, LLAMA_TOKEN_NULL);
+                    }
+                    std::fill(sampling.logits_count.begin(),     sampling.logits_count.end(),     0);
+                    std::fill(sampling.probs_count.begin(),      sampling.probs_count.end(),      0);
+                    std::fill(sampling.candidates_count.begin(), sampling.candidates_count.end(), 0);
+                }
             }
 
             return ret;
