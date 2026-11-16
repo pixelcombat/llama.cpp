@@ -1,6 +1,6 @@
 # BDH fork changelog
 
-Fork of [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp). This branch adds **`LLM_ARCH_BDH`** (Small Dragon Hatchling) on top of upstream tag **`v1.0.0`** (`b1b770d`).
+[llama.cpp](https://github.com/ggml-org/llama.cpp) at tag **`v1.0.0`** (`b1b770d`), extended with **`LLM_ARCH_BDH`** (Small Dragon Hatchling).
 
 ## 2026-11-16 — v1.0.0 integration
 
