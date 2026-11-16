@@ -1,4 +1,4 @@
-# Dragon Hatchling (BDH) on llama.cpp
+# Baby Dragon Hatchling (BDH) on llama.cpp
 
 Branch **`bdh-v1.0.0`** — [llama.cpp](https://github.com/ggml-org/llama.cpp) at upstream tag **v1.0.0**, extended for the **BDH** recurrent architecture.
 
@@ -51,7 +51,7 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 ## Test checkpoints
 
-BDH (Dragon Hatchling) is by Pathway: [arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh) (MIT). I ported BDH inference to llama.cpp in this fork and trained the files below for integration tests only.
+BDH (Baby Dragon Hatchling) is by Pathway: [arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh) (MIT). I ported BDH inference to llama.cpp in this fork and trained the files below for integration tests only.
 
 Checkpoints trained locally for fork integration tests. Output quality is too low for production use, including general Polish generation. Training time was limited. Hardware: one V100; sustained jobs hit thermal throttling. Training a capable BDH model was not feasible under these constraints.
 
@@ -85,7 +85,7 @@ pip install -U huggingface_hub
 hf download czescapk/bdh-100m-bpe8k-pl --local-dir ./models/bdh-pl
 ```
 
-Thanks to the Dragon Hatchling (BDH) and llama.cpp authors for this integration work.
+Thanks to the Baby Dragon Hatchling (BDH) and llama.cpp authors for this integration work.
 
 ## Build
 
