@@ -51,17 +51,17 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 ## Community weights (Andrzej P. / pixelcombat)
 
-Checkpoints below were trained locally to exercise this fork. **They are not good-quality models for real use** — especially for general Polish generation. Training time was short, and other practical limits applied. The main constraint was **test hardware**: a **single V100** that **thermally throttles** on longer jobs, so training a strong model under this architecture was not feasible here. Only what was possible under those limits was done.
+Checkpoints trained locally for fork integration tests. Output quality is too low for production use, including general Polish generation. Training time was limited. Hardware: one V100; sustained jobs hit thermal throttling. Training a capable model for this architecture was not feasible under these constraints.
 
-For the Polish **`bdh-100m-bpe8k-pl`** pair, training **finished after two epochs** on a **small, modest exercise set** read from a **local on-disk token cache** (~17M training tokens in the run log — not a full pretraining corpus). That run is **not training that would yield a working model** for this architecture; it only checked that the stack could learn something on available data.
+`bdh-100m-bpe8k-pl`: two epochs on a small exercise set from a local on-disk token cache (~17M training tokens in the run log; not a full pretraining corpus). This schedule does not yield a working BDH model.
 
-These checkpoints **are not fit for any concrete task** and **do not answer questions in a meaningful way**. They are meant **only as a forward-looking baseline** — a starting point for this architecture and this fork, not as models to deploy.
+Checkpoints are unsuitable for concrete tasks and do not answer questions meaningfully. Intended as a baseline for later work on this architecture and fork.
 
-If you train a **larger** (or otherwise stronger) BDH model on your own hardware with this stack, please **share a note** in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) so Andrzej can try it too.
+Larger BDH models trained with this stack may be announced in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) for evaluation by Andrzej.
 
-### Multi-token prediction (MTP) — not tried here
+### Multi-token prediction (MTP)
 
-[Multi-token prediction](https://arxiv.org/abs/2404.19737) (extra **output heads**, as in Transformer / DeepSeek V3-style setups) **is applicable to BDH** and has **not** been tried in this project (2026-11-15 feasibility note only; no implementation). The heads must be **trained with the model** — ideally from the start on the **next, larger** training run, not on the current ~100M checkpoint.
+[Multi-token prediction](https://arxiv.org/abs/2404.19737) adds auxiliary output heads (Transformer / DeepSeek V3 pattern). Compatible with BDH; not trained or run here. Heads require joint training with the model, preferably from initialization on the next larger run, not on the ~100M checkpoint.
 
 Weights are not stored in git. Download from Hugging Face:
 
@@ -81,7 +81,7 @@ pip install -U huggingface_hub
 hf download czescapk/bdh-100m-bpe8k-pl --local-dir ./models/bdh-pl
 ```
 
-Thanks to the **Dragon Hatchling (BDH)** and **llama.cpp** authors for making this integration work possible.
+Thanks to the Dragon Hatchling (BDH) and llama.cpp authors for this integration work.
 
 ## Build
 
