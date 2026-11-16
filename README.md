@@ -53,6 +53,8 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 Checkpoints below were trained locally to exercise this fork. **They are not good-quality models for real use** — especially for translation or general Polish generation. Training time was short, and other practical limits applied. The main constraint was **test hardware**: a **single V100** that **thermally throttles** on longer jobs, so training a strong model under this architecture was not feasible here. Only what was possible under those limits was done.
 
+For the Polish **`bdh-100m-bpe8k-pl`** pair, training **finished after two epochs** on a **small, modest exercise set** read from a **local on-disk token cache** (~17M training tokens in the run log — not a full pretraining corpus). That run is **not training that would yield a working model** for this architecture; it only checked that the stack could learn something on available data.
+
 These checkpoints **are not fit for any concrete task** and **do not answer questions in a meaningful way**. They are meant **only as a forward-looking baseline** — a starting point for this architecture and this fork, not as models to deploy.
 
 If you train a **larger** (or otherwise stronger) BDH model on your own hardware with this stack, please **share a note** in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) so Andrzej can try it too.
