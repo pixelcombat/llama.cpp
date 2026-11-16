@@ -1894,6 +1894,48 @@ static bool needs_raw_logits(const llama_ubatch & ubatch, const std::map<llama_s
     return false; // all sequences use backend sampling
 }
 
+static bool bdh_tight_prefill_decode_enabled() {
+    const char * env = std::getenv("BDH_UBATCH");
+    return !(env && env[0] == '0' && env[1] == '\0');
+}
+
+static int llama_bdh_decode_one_token_row(llama_context * ctx, const llama_batch_ext::token & src) {
+    llama_batch_ext one(ctx);
+    one.clear();
+
+    int32_t idx = -1;
+    for (const llama_seq_id sid : src.seq_ids) {
+        if (idx < 0) {
+            idx = one.add_token(sid);
+            if (idx < 0) {
+                return -1;
+            }
+        } else if (!one.add_seq(idx, sid)) {
+            return -1;
+        }
+    }
+    if (idx < 0) {
+        return -1;
+    }
+
+    if (src.id != LLAMA_TOKEN_NULL) {
+        if (!one.set_token_id(idx, src.id)) {
+            return -1;
+        }
+    }
+    if (!one.set_token_pos(idx, src.pos.data())) {
+        return -1;
+    }
+    if (!one.set_output(idx, src.output)) {
+        return -1;
+    }
+    if (src.decision_order != 0) {
+        one.set_decision_order(idx, src.decision_order);
+    }
+
+    return ctx->decode(one);
+}
+
 int llama_context::decode(const llama_batch_ext & batch_inp) {
     if (!memory) {
         LLAMA_LOG_DEBUG("%s: cannot decode batches with this context (calling encode() instead)\n", __func__);
@@ -1949,6 +1991,65 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
                     return -1;
                 }
             }
+        }
+    }
+
+    if (model.arch == LLM_ARCH_BDH && bdh_synaptic && bdh_tight_prefill_decode_enabled() && cparams.causal_attn &&
+        !output_all && batch_inp.tokens.size() > 1) {
+        bool text_rows_only = true;
+        for (const auto & tok : batch_inp.tokens) {
+            if (tok.has_embd || tok.has_state) {
+                text_rows_only = false;
+                break;
+            }
+        }
+        if (text_rows_only) {
+            bool auto_pos = true;
+            for (const auto & tok : batch_inp.tokens) {
+                if (tok.pos[0] != 0 || tok.pos[1] != 0 || tok.pos[2] != 0 || tok.pos[3] != 0) {
+                    auto_pos = false;
+                    break;
+                }
+            }
+
+            llama_memory_i * mem = batch_inp.mem ? batch_inp.mem : memory.get();
+            std::vector<llama_pos> pos_next(batch_inp.n_seq_max, 0);
+            if (auto_pos && mem) {
+                for (llama_seq_id s = 0; s < (llama_seq_id) batch_inp.n_seq_max; ++s) {
+                    pos_next[s] = llama_memory_seq_pos_max(mem, s) + 1;
+                }
+            }
+
+            int out_batch_idx = -1;
+            for (size_t i = 0; i < batch_inp.tokens.size(); ++i) {
+                if (batch_inp.tokens[i].output) {
+                    out_batch_idx = (int) i;
+                }
+            }
+
+            int ret = 0;
+            for (const auto & tok : batch_inp.tokens) {
+                llama_batch_ext::token row = tok;
+                if (auto_pos && tok.id != LLAMA_TOKEN_NULL && !tok.seq_ids.empty()) {
+                    const llama_seq_id sid = *tok.seq_ids.begin();
+                    row.pos[0] = pos_next[sid]++;
+                }
+                ret = llama_bdh_decode_one_token_row(this, row);
+                if (ret != 0 && ret != 1) {
+                    return ret;
+                }
+            }
+
+            if (ret == 0 && out_batch_idx >= 0) {
+                if (output_ids.size() < batch_inp.tokens.size()) {
+                    output_ids.resize(batch_inp.tokens.size(), -1);
+                }
+                std::fill(output_ids.begin(), output_ids.end(), -1);
+                output_ids[out_batch_idx] = 0;
+                n_outputs = 1;
+            }
+
+            return ret;
         }
     }
 
