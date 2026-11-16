@@ -49,17 +49,19 @@ Integration weights: Polish **`bdh-100m-bpe8k-pl`** (~100M, BPE 8k).
 
 Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
-## Community weights (Andrzej P. / pixelcombat)
+## Test checkpoints
 
-Checkpoints trained locally for fork integration tests. Output quality is too low for production use, including general Polish generation. Training time was limited. Hardware: one V100; sustained jobs hit thermal throttling. Training a capable model for this architecture was not feasible under these constraints.
+BDH (Dragon Hatchling) is by Pathway: [arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh) (MIT). I ported BDH inference to llama.cpp in this fork and trained the files below for integration tests only.
+
+Checkpoints trained locally for fork integration tests. Output quality is too low for production use, including general Polish generation. Training time was limited. Hardware: one V100; sustained jobs hit thermal throttling. Training a capable BDH model was not feasible under these constraints.
 
 `bdh-100m-bpe8k-pl`: two epochs on a small exercise set from a local on-disk token cache (~17M training tokens in the run log; not a full pretraining corpus). This schedule does not yield a working BDH model.
 
-Checkpoints are unsuitable for concrete tasks and do not answer questions meaningfully. Intended as a baseline for later work on this architecture and fork.
+Checkpoints are unsuitable for concrete tasks and do not answer questions meaningfully. Intended as a baseline for later work with this fork.
 
-Larger BDH models trained with this stack may be announced in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) for evaluation by Andrzej.
+If you train a larger BDH model with this stack on your hardware, please tell me in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) so I can try it.
 
-I apologize that I lack hardware sufficient to train a sensible model in this technology; I leave that work to the community, and for now I have done only as much as I could.
+I apologize that I lack hardware sufficient to train a sensible BDH model; I leave that work to the community, and for now I have done only as much as I could.
 
 ### Multi-token prediction (MTP)
 
