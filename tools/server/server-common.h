@@ -359,6 +359,8 @@ struct server_chat_params {
     std::string reasoning_budget_message;
     std::string media_path;
     bool force_pure_content = false;
+    int  slot_n_ctx       = 0;  // per-slot limit (runtime, no model pointer)
+    bool bdh_trim_chat    = false;
 };
 
 // used by /completions endpoint

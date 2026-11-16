@@ -45,6 +45,17 @@
 
 constexpr int HTTP_POLLING_SECONDS = 1;
 
+static bool server_model_is_bdh(const llama_model * model) {
+    if (!model) {
+        return false;
+    }
+    char arch[32] = {};
+    if (llama_model_meta_val_str(model, "general.architecture", arch, sizeof(arch)) < 1) {
+        return false;
+    }
+    return std::strcmp(arch, "bdh") == 0;
+}
+
 static common_speculative_output_limits server_output_limits(const common_params & params) {
     if (!params.mmproj.path.empty()) {
         const auto mcaps = mtmd_get_cap_from_file(params.mmproj.path.c_str());
@@ -1736,7 +1747,9 @@ private:
                 /* reasoning_budget      */ params_base.sampling.reasoning_budget_tokens,
                 /* reasoning_budget_msg  */ params_base.sampling.reasoning_budget_message,
                 /* media_path            */ params_base.media_path,
-                /* force_pure_content    */ params_base.force_pure_content_parser
+                /* force_pure_content    */ params_base.force_pure_content_parser,
+                /* slot_n_ctx            */ n_ctx_slot(),
+                /* bdh_trim_chat           */ server_model_is_bdh(model_tgt),
             };
 
             {
@@ -5070,7 +5083,14 @@ private:
             res = std::min(res, params_base.kv_unified_per_slot);
         }
 
-        return std::min(res, llama_model_n_ctx_train(model_tgt));
+        const int n_train = llama_model_n_ctx_train(model_tgt);
+        if (server_model_is_bdh(model_tgt)) {
+            const char * cap = std::getenv("BDH_CTX_CAP_TRAIN");
+            if (!(cap && cap[0] == '1' && cap[1] == '\0')) {
+                return res;
+            }
+        }
+        return std::min(res, n_train);
     }
 
     server_response_reader get_response_reader() {

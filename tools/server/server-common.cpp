@@ -1510,6 +1510,30 @@ json oaicompat_chat_params_parse(
     // Apply chat template to the list of messages
     common_chat_session_params session_params;
     session_params.echo = json_value(body, "echo", false);
+
+    if (opt.bdh_trim_chat && opt.slot_n_ctx > 0) {
+        const int reserve = std::max(
+            32,
+            json_value(body, "max_tokens", json_value(body, "n_predict", json_value(body, "n_tokens", 64))));
+        const size_t budget = (size_t) std::max(16, opt.slot_n_ctx - reserve - 4);
+
+        auto count_prompt_tokens = [&]() -> size_t {
+            common_chat_session probe = common_chat_session(opt.tmpls.get(), vocab, inputs, session_params);
+            return common_tokenize(vocab, probe.prompt().str(), false, true).size();
+        };
+
+        while (inputs.messages.size() > 1 && count_prompt_tokens() >= budget) {
+            size_t drop = 0;
+            while (drop < inputs.messages.size() && inputs.messages[drop].role == "system") {
+                ++drop;
+            }
+            if (drop >= inputs.messages.size() - 1) {
+                break;
+            }
+            inputs.messages.erase(inputs.messages.begin() + drop);
+        }
+    }
+
     out_session = common_chat_session(opt.tmpls.get(), vocab, inputs, session_params);
 
     llama_params["prompt"] = out_session.prompt().str();
