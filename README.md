@@ -59,6 +59,8 @@ Checkpoints are unsuitable for concrete tasks and do not answer questions meanin
 
 Larger BDH models trained with this stack may be announced in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) for evaluation by Andrzej.
 
+I apologize that I lack hardware sufficient to train a sensible model in this technology; I leave that work to the community, and for now I have done only as much as I could.
+
 ### Multi-token prediction (MTP)
 
 [Multi-token prediction](https://arxiv.org/abs/2404.19737) adds auxiliary output heads (Transformer / DeepSeek V3 pattern). Compatible with BDH; not trained or run here. Heads require joint training with the model, preferably from initialization on the next larger run, not on the ~100M checkpoint.
