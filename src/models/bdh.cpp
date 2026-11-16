@@ -16,6 +16,16 @@ static const char * bdh_debug_tag() {
     return std::getenv("BDH_DEBUG_OUT");
 }
 
+// Fused CUDA kernels (bdh_syn_head, …) aktualizują RS w miejscu; S (recurrent) jest na CPU
+// przy częściowym offloadzie — stąd błędna generacja (np. same LF). Domyślnie fused tylko na CPU.
+static bool bdh_cuda_fused_kernels_allowed(const llama_model & model) {
+    if (model.n_gpu_layers() == 0) {
+        return true;
+    }
+    const char * env = std::getenv("BDH_CUDA_FUSED");
+    return env && env[0] == '1' && env[1] == '\0';
+}
+
 static void bdh_debug_select(ggml_tensor * t, const char * name) {
     const char * want = bdh_debug_tag();
     if (want && t && std::strcmp(want, name) == 0) {
@@ -291,18 +301,19 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
     const bool rs_fast  = syn_step && n_seqs == 1 && mctx_recr->get_n_rs() == (uint32_t) n_seqs &&
                           (!std::getenv("BDH_RS_DIRECT") || std::strcmp(std::getenv("BDH_RS_DIRECT"), "0") != 0);
+    const bool   cuda_fused_ok = bdh_cuda_fused_kernels_allowed(model);
     const char * syn_fused_env = std::getenv("BDH_SYN_FUSED");
     const bool   syn_fused_off = syn_fused_env && std::strcmp(syn_fused_env, "0") == 0;
-    const bool   syn_fused     = syn_step && rs_fast && rope_fast && !syn_fused_off;
+    const bool   syn_fused     = syn_step && rs_fast && rope_fast && !syn_fused_off && cuda_fused_ok;
     const char * dec_fused_env = std::getenv("BDH_DEC_FUSED");
     const bool   dec_fused_off = dec_fused_env && std::strcmp(dec_fused_env, "0") == 0;
-    const bool   dec_fused     = rope_fast && !sparse_nt_path && !dec_fused_off;
+    const bool   dec_fused     = rope_fast && !sparse_nt_path && !dec_fused_off && cuda_fused_ok;
     const char * enc_fused_env = std::getenv("BDH_ENC_FUSED");
     const bool   enc_fused_off = enc_fused_env && std::strcmp(enc_fused_env, "0") == 0;
-    const bool   enc_fused     = rope_fast && !sparse_nt_path && !enc_fused_off;
+    const bool   enc_fused     = rope_fast && !sparse_nt_path && !enc_fused_off && cuda_fused_ok;
     const char * out_fused_env = std::getenv("BDH_OUT_FUSED");
     const bool   out_fused_off = out_fused_env && std::strcmp(out_fused_env, "0") == 0;
-    const bool   out_fused     = rope_fast && n_tokens == 1 && !out_fused_off;
+    const bool   out_fused     = rope_fast && n_tokens == 1 && !out_fused_off && cuda_fused_ok;
     if (syn_step && !rs_fast) {
         inp_rs = build_rs_inp();
     }
