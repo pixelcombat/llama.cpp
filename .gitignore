@@ -9,4 +9,5 @@ src/llama-*.h.bak*
 build/
 build-bdh/
 build-bdh-cuda/
+build-bdh-cuda-staging/
 build-bdh-cpu/

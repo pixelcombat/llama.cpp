@@ -3079,6 +3079,7 @@ void llama_context::output_reorder() {
 //
 
 uint32_t llama_context::graph_max_nodes() const {
+    const uint32_t n_tokens = std::min(cparams.n_ctx, cparams.n_ubatch);
     uint32_t res;
     if (model.arch == LLM_ARCH_KIMI_K3 || model.arch == LLM_ARCH_KIMI_K31 || model.arch == LLM_ARCH_GLM5_NEXT) {
         // the n_tokens*40 budget below is exhausted at ubatch 3840
