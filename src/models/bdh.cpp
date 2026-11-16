@@ -235,6 +235,17 @@ static ggml_tensor * bdh_grid_outer_delta(
     return ggml_cont(ctx, ggml_mul(ctx, qr_w, x_w));
 }
 
+static ggml_tensor * bdh_grid_head_write_nd(
+        ggml_context * ctx,
+        ggml_tensor *  grid_nd,
+        ggml_tensor *  qr,
+        ggml_tensor *  x,
+        bool           fast_single = false) {
+    ggml_tensor * delta = bdh_grid_outer_delta(ctx, qr, x, fast_single);
+    ggml_tensor * sum   = ggml_add(ctx, grid_nd, delta);
+    return fast_single ? sum : ggml_cont(ctx, sum);
+}
+
 } // namespace
 
 void llama_model_bdh::load_arch_hparams(llama_model_loader & ml) {
@@ -295,7 +306,7 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
 
     llm_graph_input_rs * inp_rs = nullptr;
     const llama_memory_recurrent_context * mctx_recr = nullptr;
-    if (mctx && !bdh_debug_tag()) {
+    if (mctx) {
         mctx_recr = static_cast<const llama_memory_recurrent_context *>(mctx);
     }
     const bool syn_step = mctx_recr != nullptr && params.bdh_synaptic && n_tokens == 1;
@@ -353,6 +364,8 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
     ggml_tensor * w_enc   = bdh_encoder_weights_2d(ctx0, m.bdh_encoder, nh, N, D);
     ggml_tensor * w_enc_v = ggml_cont(ctx0, ggml_permute(ctx0, m.bdh_encoder_v, 1, 0, 2, 3));
 
+    std::vector<std::pair<ggml_tensor *, ggml_tensor *>> grid_pending_cpy;
+
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * x = rope_fast ? cur : ggml_cont(ctx0, cur);
 
@@ -395,11 +408,11 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
                 } else {
                     y_h = rope_fast ? ggml_mul_mat(ctx0, grid_h, qr)
                                     : ggml_cont(ctx0, ggml_mul_mat(ctx0, grid_h, qr));
-                    ggml_tensor * delta = bdh_grid_outer_delta(ctx0, qr, x, rope_fast);
+                    ggml_tensor * grid_w = bdh_grid_head_write_nd(ctx0, grid_h, qr, x, rope_fast);
+                    grid_w               = ggml_add(ctx0, grid_w, ggml_scale(ctx0, y_h, 0.0f));
                     if (rs_fast) {
-                        ggml_build_forward_expand(gf, ggml_add_inplace(ctx0, grid_h, delta));
+                        grid_pending_cpy.emplace_back(grid_w, grid_h);
                     } else {
-                        ggml_tensor * grid_w = ggml_add(ctx0, grid_h, delta);
                         grid_out_heads.push_back(rope_fast ? grid_w : ggml_cont(ctx0, grid_w));
                     }
                 }
@@ -467,6 +480,14 @@ llama_model_bdh::graph::graph(const llama_model & model, const llm_graph_params 
         y_mlp = build_norm(y_mlp, nullptr, nullptr, LLM_NORM, il);
         cur   = build_norm(ggml_add(ctx0, x, y_mlp), nullptr, nullptr, LLM_NORM, il);
         bdh_debug_select_il(cur, "l_out", il);
+
+        if (rs_fast && !grid_pending_cpy.empty()) {
+            for (const auto & wh : grid_pending_cpy) {
+                ggml_tensor * w_dep = ggml_add(ctx0, wh.first, ggml_scale(ctx0, cur, 0.0f));
+                ggml_build_forward_expand(gf, ggml_cpy(ctx0, w_dep, wh.second));
+            }
+            grid_pending_cpy.clear();
+        }
 
         if (il == n_layer - 1 && inp_out_ids && !bdh_debug_tag()) {
             cur = ggml_get_rows(ctx0, cur, inp_out_ids);

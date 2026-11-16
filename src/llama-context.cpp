@@ -1994,14 +1994,6 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
         }
     }
 
-    if (model.arch == LLM_ARCH_BDH && batch_inp.tokens.size() > 1) {
-        LLAMA_LOG_INFO(
-                "%s: BDH multi-decode n_tok=%zu embd=%zu state=%zu syn=%d tight=%d causal=%d embd_out=%d\n",
-                __func__, batch_inp.tokens.size(), batch_inp.embd.size(), batch_inp.state.size(),
-                (int) bdh_synaptic, (int) bdh_tight_prefill_decode_enabled(), (int) cparams.causal_attn,
-                (int) output_all);
-    }
-
     if (model.arch == LLM_ARCH_BDH && bdh_synaptic && bdh_tight_prefill_decode_enabled() && cparams.causal_attn &&
         !output_all && batch_inp.tokens.size() > 1) {
         // Server batches only set has_embd/has_state flags for pure embedding rows; rely on
@@ -2042,6 +2034,10 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
                 ret = llama_bdh_decode_one_token_row(this, row);
                 if (ret != 0 && ret != 1) {
                     return ret;
+                }
+                // RS grid_pending_cpy: kolejne mikro-dekodowania muszą domknąć cpy stanu z GPU.
+                if (model.n_gpu_layers() > 0) {
+                    synchronize();
                 }
             }
 
@@ -2917,7 +2913,7 @@ llm_graph_params llama_context::graph_params(
     p.n_outputs    = n_outputs;
     p.cb           = graph_get_cb();
     p.res          = res;
-    p.bdh_synaptic = model.arch == LLM_ARCH_BDH && bdh_synaptic && !std::getenv("BDH_DEBUG_OUT");
+    p.bdh_synaptic = model.arch == LLM_ARCH_BDH && bdh_synaptic;
     return p;
 }
 
