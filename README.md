@@ -51,9 +51,11 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 ## Test checkpoints
 
-BDH (Baby Dragon Hatchling) is by Pathway: [arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh) (MIT). I ported BDH inference to llama.cpp in this fork and trained the files below for integration tests only.
+*Written by Andrzej; drafted and edited with Go, an AI assistant (Grok Bot), under his direction and corrections.*
 
-Checkpoints trained locally for fork integration tests. Output quality is too low for production use, including general Polish generation. Training time was limited. Hardware: one V100; sustained jobs hit thermal throttling. Training a capable BDH model was not feasible under these constraints.
+Baby Dragon Hatchling (BDH) is an architecture by Pathway ([arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh), MIT). "Baby" marks its early stage: a small seed meant to grow.
+
+This fork adds: BDH inference in llama.cpp, a conversion script from PyTorch checkpoints to GGUF, and test checkpoints. The checkpoints were trained on a single NVIDIA V100, a GPU generation about ten years old, under thermal throttling. They are a baseline for integration tests, not a capable model. Current hardware removes these limits; anyone with it can train the next, larger stage with this stack.
 
 `bdh-100m-bpe8k-pl`: two epochs on a small exercise set from a local on-disk token cache (~17M training tokens in the run log; not a full pretraining corpus). This schedule does not yield a working BDH model.
 
