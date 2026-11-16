@@ -59,7 +59,14 @@ These checkpoints **are not fit for any concrete task** and **do not answer ques
 
 If you train a **larger** (or otherwise stronger) BDH model on your own hardware with this stack, please **share a note** in [Issues](https://github.com/pixelcombat/llama.cpp/issues) or [Discussions](https://github.com/pixelcombat/llama.cpp/discussions) so Andrzej can try it too.
 
-**Future idea (not done here):** [Multi-token prediction (MTP)](https://arxiv.org/abs/2404.19737) has **not** been tried with BDH in this fork. It may be worth considering in later training or inference work on this architecture — a proposal only, with no results claimed.
+### Multi-token prediction (MTP) — not tried here
+
+Notes from a 2026-11-15 discussion (feasibility only; **nothing implemented or benchmarked** in this fork):
+
+- **Possible for BDH.** [Multi-token prediction](https://arxiv.org/abs/2404.19737) (as in e.g. DeepSeek V3-style training, mainly to speed up generation via speculation) is extra **output heads** on top of the stack. They do not change the core block design — the same pattern as on a Transformer.
+- **Training.** Those heads need to be **trained with the model**. It is simplest to add them **from the start** on the next real training run (larger model or distillation from a teacher); then they are almost “free”. Bolting them onto an existing checkpoint means **separate fine-tuning** — not planned for the current ~100M weights.
+- **This fork.** llama.cpp would need **inference support** for the extra heads (not present today).
+- **BDH-specific.** With speculative decoding, **rejected draft tokens** must **roll back synaptic grid state**. That should be doable, but it is **extra engineering** on top of MTP support.
 
 Weights are not stored in git. Download from Hugging Face:
 
