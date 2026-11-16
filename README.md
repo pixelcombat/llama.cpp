@@ -51,7 +51,7 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 ## Community weights (Andrzej P. / pixelcombat)
 
-Checkpoints below were trained locally to exercise this fork. **They are not good-quality models for real use** — especially for translation or general Polish generation. Training time was short, and other practical limits applied. The main constraint was **test hardware**: a **single V100** that **thermally throttles** on longer jobs, so training a strong model under this architecture was not feasible here. Only what was possible under those limits was done.
+Checkpoints below were trained locally to exercise this fork. **They are not good-quality models for real use** — especially for general Polish generation. Training time was short, and other practical limits applied. The main constraint was **test hardware**: a **single V100** that **thermally throttles** on longer jobs, so training a strong model under this architecture was not feasible here. Only what was possible under those limits was done.
 
 For the Polish **`bdh-100m-bpe8k-pl`** pair, training **finished after two epochs** on a **small, modest exercise set** read from a **local on-disk token cache** (~17M training tokens in the run log — not a full pretraining corpus). That run is **not training that would yield a working model** for this architecture; it only checked that the stack could learn something on available data.
 
@@ -61,12 +61,7 @@ If you train a **larger** (or otherwise stronger) BDH model on your own hardware
 
 ### Multi-token prediction (MTP) — not tried here
 
-Notes from a 2026-11-15 discussion (feasibility only; **nothing implemented or benchmarked** in this fork):
-
-- **Possible for BDH.** [Multi-token prediction](https://arxiv.org/abs/2404.19737) (as in e.g. DeepSeek V3-style training, mainly to speed up generation via speculation) is extra **output heads** on top of the stack. They do not change the core block design — the same pattern as on a Transformer.
-- **Training.** Those heads need to be **trained with the model**. It is simplest to add them **from the start** on the next real training run (larger model or distillation from a teacher); then they are almost “free”. Bolting them onto an existing checkpoint means **separate fine-tuning** — not planned for the current ~100M weights.
-- **This fork.** llama.cpp would need **inference support** for the extra heads (not present today).
-- **BDH-specific.** With speculative decoding, **rejected draft tokens** must **roll back synaptic grid state**. That should be doable, but it is **extra engineering** on top of MTP support.
+[Multi-token prediction](https://arxiv.org/abs/2404.19737) (extra **output heads**, as in Transformer / DeepSeek V3-style setups) **is applicable to BDH** and has **not** been tried in this project (2026-11-15 feasibility note only; no implementation). The heads must be **trained with the model** — ideally from the start on the **next, larger** training run, not on the current ~100M checkpoint.
 
 Weights are not stored in git. Download from Hugging Face:
 
