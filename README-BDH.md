@@ -2,6 +2,8 @@
 
 This tree is [llama.cpp](https://github.com/ggml-org/llama.cpp) at upstream **`v1.0.0`**, with **`LLM_ARCH_BDH`** wired through ggml, inference, and the HTTP server.
 
+Pathway's MIT license and copyright notice are included in [licenses/LICENSE-pathway-bdh](licenses/LICENSE-pathway-bdh).
+
 BDH is a compact recurrent language model: instead of a growing KV cache, a **synaptic grid** carries state across decode steps. Each new token updates that grid; the next step reads it back. Prefill can run as one **tight micro-batch** (ubatch length = prompt length) so the recurrent state is established before greedy or sampled decode.
 
 ## What is in this fork

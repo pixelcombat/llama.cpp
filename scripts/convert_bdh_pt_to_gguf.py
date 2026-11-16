@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# BDH architecture by Pathway (arXiv:2509.26507), reference code MIT, Copyright 2025 Pathway Technology, Inc.; see licenses/LICENSE-pathway-bdh.
 """Konwersja checkpointu BDH (.pt) do GGUF dla forka llama.cpp-bdh (architektura bdh)."""
 from __future__ import annotations
 

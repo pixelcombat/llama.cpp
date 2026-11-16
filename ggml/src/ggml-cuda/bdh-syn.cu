@@ -1,3 +1,4 @@
+// BDH architecture by Pathway (arXiv:2509.26507), reference code MIT, Copyright 2025 Pathway Technology, Inc.; see licenses/LICENSE-pathway-bdh.
 #include "bdh-syn.cuh"
 #include "common.cuh"
 

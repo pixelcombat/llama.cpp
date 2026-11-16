@@ -53,7 +53,7 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 *This README text (documentation only) was written by Andrzej with Go, an AI assistant (Grok Bot), under his direction and corrections. The BDH architecture and its reference code are by Pathway (MIT); see below.*
 
-Baby Dragon Hatchling (BDH) is an architecture by Pathway ([arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh), MIT). "Baby" marks its early stage: a small seed meant to grow.
+Baby Dragon Hatchling (BDH) is an architecture by Pathway ([arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh), MIT). Pathway's MIT license and copyright notice are included in [licenses/LICENSE-pathway-bdh](licenses/LICENSE-pathway-bdh). "Baby" marks its early stage: a small seed meant to grow.
 
 This fork adds: BDH inference in llama.cpp, a conversion script from PyTorch checkpoints to GGUF, and test checkpoints. The checkpoints were trained on a single NVIDIA V100, a GPU generation about ten years old, under thermal throttling. They are a baseline for integration tests, not a capable model. Current hardware removes these limits; anyone with it can train the next, larger stage with this stack.
 
