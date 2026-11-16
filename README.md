@@ -51,7 +51,7 @@ Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
 ## Test checkpoints
 
-*Written by Andrzej; drafted and edited with Go, an AI assistant (Grok Bot), under his direction and corrections.*
+*This README text (documentation only) was written by Andrzej with Go, an AI assistant (Grok Bot), under his direction and corrections. The BDH architecture and its reference code are by Pathway (MIT); see below.*
 
 Baby Dragon Hatchling (BDH) is an architecture by Pathway ([arXiv:2509.26507](https://arxiv.org/abs/2509.26507), [pathwaycom/bdh](https://github.com/pathwaycom/bdh), MIT). "Baby" marks its early stage: a small seed meant to grow.
 
