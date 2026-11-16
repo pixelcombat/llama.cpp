@@ -1,6 +1,6 @@
 # BDH fork changelog
 
-[llama.cpp](https://github.com/ggml-org/llama.cpp) at tag **`v1.0.0`** (`b1b770d`), extended with **`LLM_ARCH_BDH`** (Small Dragon Hatchling).
+[llama.cpp](https://github.com/ggml-org/llama.cpp) at tag **`v1.0.0`** (`b1b770d`), extended with **`LLM_ARCH_BDH`** (Dragon Hatchling, Pathway arXiv:2509.26507).
 
 ## 2026-11-16 — v1.0.0 integration
 

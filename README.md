@@ -1,6 +1,8 @@
-# Small Dragon Hatchling (BDH) on llama.cpp
+# Dragon Hatchling (BDH) on llama.cpp
 
 Branch **`bdh-v1.0.0`** — [llama.cpp](https://github.com/ggml-org/llama.cpp) at upstream tag **v1.0.0**, extended for the **BDH** recurrent architecture.
+
+Architecture source: Pathway, [*The Dragon Hatchling: The Missing Link between the Transformer and Models of the Brain*](https://arxiv.org/abs/2509.26507) (arXiv:2509.26507).
 
 Upstream project overview and general build options: **README-llama.cpp.md**.
 
@@ -35,7 +37,7 @@ BDH keeps a fixed-size **synaptic grid**: state lives in a recurrent buffer upda
 ## Verified (2026-11-16)
 
 Staging build: CUDA **sm_60 + sm_70**, OpenBLAS, `llama-server`.  
-Weights: **Polish** `bdh-100m-bpe8k-pl` (~100M, BPE 8k).
+Integration weights: Polish **`bdh-100m-bpe8k-pl`** (~100M, BPE 8k).
 
 | Check | Result |
 |-------|--------|
@@ -47,22 +49,29 @@ Weights: **Polish** `bdh-100m-bpe8k-pl` (~100M, BPE 8k).
 
 Details: [docs/BDH-TEST-RESULTS.md](docs/BDH-TEST-RESULTS.md).
 
-## Model download
+## Community weights (Andrzej P. / pixelcombat)
 
-Private Hugging Face repo (weights not in git):
+Checkpoints below were trained locally to exercise this fork. **They are not good-quality models for real use** — especially for translation or general Polish generation. Training time was short, and other practical limits applied. The main constraint was **test hardware**: a **single V100** that **thermally throttles** on longer jobs, so training a strong model under this architecture was not feasible here. Only what was possible under those limits was done.
+
+Weights are not stored in git. Download from Hugging Face:
 
 **[czescapk/bdh-100m-bpe8k-pl](https://huggingface.co/czescapk/bdh-100m-bpe8k-pl)**
 
 | File | Role |
 |------|------|
-| `bdh-100m-bpe8k-pl.gguf` | Inference with this fork |
-| `bdh-100m-bpe8k-pl.pt` | PyTorch checkpoint |
+| `bdh-100m-bpe8k-pl.gguf` | Polish BPE 8k — inference with this fork (primary demo) |
+| `bdh-100m-bpe8k-pl.pt` | Same run, PyTorch checkpoint |
+| `checkpoints/bdh-100m-bpe8k.pt` | English BPE 8k base (~100M), same scale recipe |
+| `checkpoints/bdh-100m-bpe-pl-ext-najlepszy.pt` | Extended Polish training — best saved step |
+| `checkpoints/bdh-100m-bpe-pl-ext-epoka-1.pt` | Extended Polish — end of epoch 1 |
+| `checkpoints/bdh-100m-bpe-pl-ext-init.pt` | Extended Polish — starting weights for that run |
 
 ```bash
 pip install -U huggingface_hub
-hf auth login   # access required while repo is private
 hf download czescapk/bdh-100m-bpe8k-pl --local-dir ./models/bdh-pl
 ```
+
+Thanks to the **Dragon Hatchling (BDH)** and **llama.cpp** authors for making this integration work possible.
 
 ## Build
 
