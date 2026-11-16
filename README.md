@@ -67,7 +67,7 @@ I apologize that I lack hardware sufficient to train a sensible BDH model; I lea
 
 ### Multi-token prediction (MTP)
 
-[Multi-token prediction](https://arxiv.org/abs/2404.19737) adds auxiliary output heads (Transformer / DeepSeek V3 pattern). Compatible with BDH; not trained or run here. Heads require joint training with the model, preferably from initialization on the next larger run, not on the ~100M checkpoint.
+[Multi-token prediction](https://arxiv.org/abs/2404.19737) adds auxiliary output heads (Transformer / DeepSeek V3 pattern). Compatible with BDH; not trained or run here. As of 2026-11-16, no public BDH paper, checkpoint, or inference port with trained MTP heads was found. Heads require joint training with the model, preferably from initialization on the next larger run, not on the ~100M checkpoint. Pathway's later BDH-CQ work ([arXiv:2608.09888](https://arxiv.org/abs/2608.09888), August 2026) is recurrent latent reasoning, not MTP, and its weights are not public.
 
 Weights are not stored in git. Download from Hugging Face:
 
